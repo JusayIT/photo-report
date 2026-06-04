@@ -48,9 +48,39 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
 
     if (video && canvas) {
       const ctx = canvas.getContext('2d');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      const vWidth = video.videoWidth;
+      const vHeight = video.videoHeight;
+      
+      // Целевое соотношение сторон — строго горизонтальные 4:3 под формат отчета
+      const targetAspect = 4 / 3;
+      
+      let sX = 0;
+      let sY = 0;
+      let sWidth = vWidth;
+      let sHeight = vHeight;
+
+      // Рассчитываем кадрирование (Center Crop)
+      if (vWidth / vHeight > targetAspect) {
+        // Поток шире, чем 4:3 (например, 16:9 на ноутбуке) -> отрезаем лишнее по бокам
+        sWidth = vHeight * targetAspect;
+        sX = (vWidth - sWidth) / 2;
+      } else {
+        // Поток уже/вертикальнее, чем 4:3 (портретный режим смартфона) -> отрезаем лишнее сверху и снизу
+        sHeight = vWidth / targetAspect;
+        sY = (vHeight - sHeight) / 2;
+      }
+
+      // Устанавливаем физический размер холста холста равным вырезанному фрагменту
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+
+      // Вырезаем центральную часть видеопотока (имитируем поведение CSS object-cover)
+      ctx.drawImage(
+        video, 
+        sX, sY, sWidth, sHeight, // Координаты и размеры исходного кадра (откуда берем)
+        0, 0, canvas.width, canvas.height // Координаты и размеры на холсте (куда рисуем)
+      );
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       
