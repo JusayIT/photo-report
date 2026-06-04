@@ -15,8 +15,9 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
         const constraints = {
           video: {
             facingMode: 'environment', // Задняя камера для съемки ОС
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            // Используем максимальное разрешение модуля, чтобы захватить широкий угол
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
           },
           audio: false
         };
@@ -46,13 +47,13 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    if (video && canvas) {
+  	if (video && canvas) {
       const ctx = canvas.getContext('2d');
       
       const vWidth = video.videoWidth;
       const vHeight = video.videoHeight;
       
-      // Целевое соотношение сторон — строго горизонтальные 4:3 под формат отчета
+      // Целевое соотношение сторон для Excel — строго горизонтальные 4:3
       const targetAspect = 4 / 3;
       
       let sX = 0;
@@ -60,40 +61,34 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
       let sWidth = vWidth;
       let sHeight = vHeight;
 
-      // Рассчитываем кадрирование (Center Crop)
+      // Рассчитываем правильный Center Crop для сохранения
       if (vWidth / vHeight > targetAspect) {
-        // Поток шире, чем 4:3 (например, 16:9 на ноутбуке) -> отрезаем лишнее по бокам
         sWidth = vHeight * targetAspect;
         sX = (vWidth - sWidth) / 2;
       } else {
-        // Поток уже/вертикальнее, чем 4:3 (портретный режим смартфона) -> отрезаем лишнее сверху и снизу
         sHeight = vWidth / targetAspect;
         sY = (vHeight - sHeight) / 2;
       }
 
-      // Устанавливаем физический размер холста холста равным вырезанному фрагменту
       canvas.width = sWidth;
       canvas.height = sHeight;
 
-      // Вырезаем центральную часть видеопотока (имитируем поведение CSS object-cover)
       ctx.drawImage(
         video, 
-        sX, sY, sWidth, sHeight, // Координаты и размеры исходного кадра (откуда берем)
-        0, 0, canvas.width, canvas.height // Координаты и размеры на холсте (куда рисуем)
+        sX, sY, sWidth, sHeight, 
+        0, 0, canvas.width, canvas.height
       );
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      
-      // Передаем снимок, ID строки и тип поля обратно в App.jsx
       onCapture(dataUrl, id, field);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4 select-none">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-2 select-none">
       <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
         
-        {/* Заголовок меняется в зависимости от типа поля */}
+        {/* Заголовок */}
         <div className="relative py-4 border-b border-gray-100 flex items-center justify-center bg-white">
           <h3 className="text-gray-900 font-bold text-sm">
             {isOverlay ? "Фото инвентарного номера" : "Фото общего вида объекта"}
@@ -101,8 +96,8 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
           <button onClick={onClose} className="absolute right-4 text-gray-400 hover:text-gray-600 text-lg p-1">✕</button>
         </div>
 
-        {/* Область превью камеры */}
-        <div className="relative bg-gray-950 aspect-[4/3] w-full flex items-center justify-center overflow-hidden">
+        {/* Область превью камеры: увеличенная по вертикали (в 2 раза) и горизонтали (в 1.5 раза) за счет aspect-[3/4] */}
+        <div className="relative bg-gray-950 aspect-[3/4] w-full flex items-center justify-center overflow-hidden">
           {error ? (
             <div className="text-center p-6 max-w-xs">
               <p className="text-red-400 text-xs font-semibold mb-2">⚠ Доступ ограничен</p>
@@ -112,13 +107,12 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
             <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
           )}
 
-          {/* Желтая рамка-трафарет появляется ТОЛЬКО для инвентарного номера */}
+          {/* Рамка-трафарет появляется ТОЛЬКО для инвентарного номера */}
           {!error && isOverlay && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-              {/* Рамка фокуса */}
-              <div className="w-[75%] h-[40%] border-2 border-yellow-400 rounded-xl flex items-center justify-center p-4 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.4)]">
-                {/* Текст подсказки по ТЗ */}
-                <span className="text-yellow-400 text-[11px] font-bold text-center bg-black/50 px-2 py-1 rounded-md tracking-wide">
+              {/* Оптимизированная рамка под новые размеры */}
+              <div className="w-[85%] h-[25%] border-2 border-yellow-400 rounded-xl flex items-center justify-center p-4 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
+                <span className="text-yellow-400 text-[11px] font-bold text-center bg-black/60 px-2.5 py-1.5 rounded-lg tracking-wide leading-tight">
                   Наведите инвентарный номер в рамку
                 </span>
               </div>
@@ -130,7 +124,7 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
         <div className="bg-white px-6 py-4 flex items-center justify-center gap-4 border-t border-gray-100">
           <button
             onClick={onClose}
-            className="flex-1 max-w-[130px] py-2.5 px-4 rounded-xl border border-gray-200 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all flex items-center justify-center gap-1.5"
+            className="flex-1 max-w-[130px] py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all flex items-center justify-center gap-1.5"
           >
             ✕ Отмена
           </button>
@@ -138,12 +132,12 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
           <button
             onClick={handleCapture}
             disabled={!!error}
-            className="flex-1 max-w-[150px] py-2.5 px-5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+            className="flex-1 max-w-[170px] py-3 px-5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
           >
-            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+            <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
               <path d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586l-1.293-1.293A1 1 0 0012.414 3H7.586a1 1 0 00-.707.293L5.586 5H4zm6 9a3 3 0 110-6 3 3 0 010 6z" />
             </svg>
-            Снять
+            Снять кадр
           </button>
         </div>
 
