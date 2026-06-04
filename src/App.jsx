@@ -19,7 +19,7 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
 
-  // ================= ПЕРЕХВАТ ФАЙЛОВ ИЗ SHARE TARGET (Шаг 2.3) =================
+  // ================= ПЕРЕХВАТ ВХОДЯЩИХ ФАЙЛОВ ИЗ ГАЛЕРЕИ =================
   useEffect(() => {
     async function checkSharedFiles() {
       if (!('caches' in window)) return;
@@ -32,13 +32,10 @@ export default function App() {
           const blob = await response.blob();
           const file = new File([blob], "shared-photo.jpg", { type: blob.type });
           
-          console.log("Успешно перехвачен общий файл:", file);
-          
           const reader = new FileReader();
           reader.onloadend = () => {
             const dataUrl = reader.result;
             
-            // Безопасное добавление новой позиции без бесконечного цикла обновлений
             setPositions(prev => {
               const newId = prev.length > 0 ? Math.max(...prev.map(p => p.id)) + 1 : 1;
               return [
@@ -47,12 +44,10 @@ export default function App() {
               ];
             });
             
-            // Если пользователь находился на главном экране, переключаем его на экран создания
             setScreen(currentScreen => currentScreen === 'main' ? 'create' : currentScreen);
           };
           reader.readAsDataURL(file);
           
-          // Обязательно очищаем кэш во избежание дублирования при перезагрузках
           await cache.delete('/shared-incoming-file');
         }
       } catch (error) {
@@ -60,13 +55,10 @@ export default function App() {
       }
     }
 
-    // Проверяем наличие переданных файлов при инициализации приложения
     checkSharedFiles();
-    
-    // Дополнительно слушаем фокус окна на случай, если приложение уже было открыто в фоне
     window.addEventListener('focus', checkSharedFiles);
     return () => window.removeEventListener('focus', checkSharedFiles);
-  }, []); // Пустой массив гарантирует стабильность и отсутствие белого экрана!
+  }, []);
 
   const addPosition = () => {
     const newId = positions.length > 0 ? Math.max(...positions.map(p => p.id)) + 1 : 1;
@@ -323,7 +315,7 @@ export default function App() {
                       <span className="text-xs font-bold text-gray-400 w-3">{index + 1}</span>
                       <input type="text" placeholder="3-1234" value={pos.invNumber} onChange={(e) => handleInvChange(pos.id, e.target.value)} className="w-[100px] bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" />
                       
-                      {/* Фикс проблемы 2: Элементы img теперь используют object-contain и центрируются внутри контейнеров */}
+                      {/* Окончательный фикс растянутых фото */}
                       <div className="w-[85px] h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
                         {!pos.photoInv ? (
                           <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">В рамку</span></button>
@@ -398,7 +390,6 @@ export default function App() {
           </>
         )}
 
-        {/* ================= ЭКРАН ПАМЯТКИ ================= */}
         {screen === 'info' && (
           <>
             <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10 shadow-sm">
@@ -451,7 +442,7 @@ export default function App() {
                           <td className="border-r border-gray-200 p-1">
                             <div className="h-14 bg-emerald-50 rounded-lg border border-emerald-200 flex flex-col items-center justify-center text-[10px] text-emerald-700 font-semibold p-1 text-center leading-tight">
                               <span>[ Штрих-код ]</span>
-                              <span className="text-[9px] text-emerald-600 font-normal mt-0.5">Четкий, horizontal</span>
+                              <span className="text-[9px] text-emerald-600 font-normal mt-0.5">Четкий, горизонтальный</span>
                             </div>
                           </td>
                           <td className="p-1">
