@@ -92,7 +92,6 @@ export default function App() {
       count: positions.length,
       positions: positions
     };
-
     if (currentId) {
       await db.reports.update(currentId, reportData);
     } else {
@@ -126,16 +125,17 @@ export default function App() {
     setScreen('main');
   };
 
-  // ================= ГЕНЕРАЦИЯ EXCEL =================
+  // ================= ГЕНЕРАЦИЯ EXCEL (ФИКС СЕТКИ И РАЗМЕРОВ ЯЧЕЕК) =================
   const generateExcelBlob = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Фотоотчет');
 
+    // Пропорции: ширина 30 единиц в Excel дает около 240 пикселей под вертикальный кадр
     worksheet.columns = [
       { key: 'no', width: 6 },
-      { key: 'inv', width: 25 },
-      { key: 'photo1', width: 52 }, 
-      { key: 'photo2', width: 52 }  
+      { key: 'inv', width: 22 },
+      { key: 'photo1', width: 30 }, 
+      { key: 'photo2', width: 30 }  
     ];
 
     worksheet.mergeCells('A1:D1');
@@ -163,7 +163,8 @@ export default function App() {
 
     previewDoc.positions.forEach((p, index) => {
       const row = worksheet.addRow([index + 1, p.invNumber || '—', '', '']);
-      row.height = 250; 
+      // Высота строки 240 пунктов (~320 пикселей). В сочетании с шириной 30 дает чистый бокс 3:4
+      row.height = 240; 
 
       row.eachCell((cell) => {
         cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
@@ -176,18 +177,20 @@ export default function App() {
           const base64Image = base64Data.split(';base64,').pop();
           const imageId = workbook.addImage({ base64: base64Image, extension: 'jpeg' });
           
+          // Жесткая привязка «от угла до угла» ячейки (Two Cell Anchor)
+          // Картинка идеально заполнит ячейку, подстроится под рендеринг любого телефона и не вылетит наружу
           worksheet.addImage(imageId, {
-            tl: { col: colNumber, row: row.number - 1, colOff: 33, rowOff: 66 },
-            ext: { width: 350, height: 200 },           
-            editAs: 'oneCell'                            
+            tl: { col: colNumber, row: row.number - 1 },
+            br: { col: colNumber + 1, row: row.number },
+            editAs: 'oneCell'                           
           });
         } catch (error) {
           console.error("Ошибка при добавлении изображения в Excel:", error);
         }
       };
 
-      addImageToCell(p.photoInv, 2); 
-      addImageToCell(p.photoObj, 3); 
+      addImageToCell(p.photoInv, 2); // Столбец C (индекс 2)
+      addImageToCell(p.photoObj, 3); // Столбец D (индекс 3)
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -199,7 +202,6 @@ export default function App() {
       const blob = await generateExcelBlob();
       const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
       const file = new File([blob], fileName, { type: blob.type });
-
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
@@ -236,6 +238,7 @@ export default function App() {
           />
         )}
 
+        {/* ================= ЭКРАН 1: ГЛАВНАЯ СТРАНИЦА ================= */}
         {screen === 'main' && (
           <>
             <header className="flex justify-between items-center px-5 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
@@ -280,6 +283,7 @@ export default function App() {
           </>
         )}
 
+        {/* ================= ЭКРАН 2: СОЗДАНИЕ И РЕДАКТИРОВАНИЕ ================= */}
         {screen === 'create' && (
           <>
             <header className="flex justify-between items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
@@ -289,7 +293,10 @@ export default function App() {
               </div>
               <div className="flex gap-2">
                 <button onClick={saveDocument} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-all">Сохранить</button>
-                <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
+                <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} 
+                        className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1">
+                  <Send className="w-3 h-3" />
+                </button>
               </div>
             </header>
 
@@ -311,32 +318,48 @@ export default function App() {
                       <div className="flex gap-6"><span className="w-3">№</span><span>Инвентарный номер</span></div>
                       {positions.length > 1 && <button onClick={() => deletePosition(pos.id)} className="text-red-400 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>}
                     </div>
+                    
                     <div className="p-3 flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-gray-400 w-3">{index + 1}</span>
-                      <input type="text" placeholder="3-1234" value={pos.invNumber} onChange={(e) => handleInvChange(pos.id, e.target.value)} className="w-[100px] bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" />
+                      <input type="text" placeholder="3-1234" value={pos.invNumber} onChange={(e) => handleInvChange(pos.id, e.target.value)} className="w-[110px] bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" />
                       
-                      {/* Окончательный фикс растянутых фото */}
-                      <div className="w-[85px] h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
+                      {/* Четкое превью 3:4 для фото инвентарника */}
+                      <div className="w-[54px] h-[72px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-200 flex-shrink-0">
                         {!pos.photoInv ? (
-                          <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">В рамку</span></button>
-                        ) : <img src={pos.photoInv} onClick={() => openCamera(pos.id, 'photoInv')} className="max-w-full max-h-full object-contain cursor-pointer" alt="инв" />}
+                          <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[9px] text-blue-600 font-bold leading-tight">
+                            <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" />
+                            <span>В рамку</span>
+                          </button>
+                        ) : (
+                          <img src={pos.photoInv} onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full object-cover cursor-pointer" alt="инв" />
+                        )}
                       </div>
 
-                      <div className="w-[85px] h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
+                      {/* Четкое превью 3:4 для фото объекта */}
+                      <div className="w-[54px] h-[72px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-200 flex-shrink-0">
                         {!pos.photoObj ? (
-                          <button onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">Фото ОС</span></button>
-                        ) : <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="max-w-full max-h-full object-contain cursor-pointer" alt="ос" />}
+                          <button onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[9px] text-blue-600 font-bold leading-tight">
+                            <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" />
+                            <span>Фото ОС</span>
+                          </button>
+                        ) : (
+                          <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full object-cover cursor-pointer" alt="ос" />
+                        )}
                       </div>
 
                     </div>
                   </div>
                 ))}
               </div>
-              <button onClick={addPosition} className="w-full border border-blue-300 text-blue-600 py-2.5 rounded-xl flex items-center justify-center gap-1 text-xs font-semibold hover:bg-blue-50/30 transition-all"><Plus className="w-4 h-4 stroke-[2.5]" /><span>Добавить позицию</span></button>
+              <button onClick={addPosition} className="w-full border border-blue-300 text-blue-600 py-2.5 rounded-xl flex items-center justify-center gap-1 text-xs font-semibold hover:bg-blue-50/30 transition-all">
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Добавить позицию</span>
+              </button>
             </main>
           </>
         )}
 
+        {/* ================= ЭКРАН 3: ПРЕДПРОСМОТР ТАБЛИЦЫ EXCEL ================= */}
         {screen === 'preview' && previewDoc && (
           <>
             <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
@@ -360,15 +383,17 @@ export default function App() {
                     <div className="col-span-4 border-l border-white/20">Фото инв.</div>
                     <div className="col-span-4 border-l border-white/20">Фото общего вида</div>
                   </div>
+                  
                   {previewDoc.positions?.map((p, i) => (
-                    <div key={p.id} className="grid grid-cols-12 border-b border-gray-200 items-center text-center p-1 min-h-[60px]">
+                    <div key={p.id} className="grid grid-cols-12 border-b border-gray-200 items-center text-center p-1 min-h-[75px]">
                       <div className="col-span-1 text-gray-400 font-bold">{i + 1}</div>
                       <div className="col-span-3 font-bold text-gray-700">{p.invNumber || '—'}</div>
-                      <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                      
+                      <div className="col-span-4 p-1 flex justify-center">
+                        {p.photoInv ? <img src={p.photoInv} className="h-14 w-10 object-cover rounded shadow-sm" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
-                      <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                      <div className="col-span-4 p-1 flex justify-center">
+                        {p.photoObj ? <img src={p.photoObj} className="h-14 w-10 object-cover rounded shadow-sm" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                     </div>
                   ))}
@@ -390,6 +415,7 @@ export default function App() {
           </>
         )}
 
+        {/* ================= ЭКРАН 4: ТРЕБОВАНИЯ К ФОТООТЧЕТУ ================= */}
         {screen === 'info' && (
           <>
             <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10 shadow-sm">
@@ -405,17 +431,13 @@ export default function App() {
                   <p className="mb-4 font-bold text-gray-900">
                     В заявки 1С на реализацию, благотворительность, списание обязательно должны вкладывать таблицу с указанием:
                   </p>
-                  
                   <ol className="list-decimal pl-5 space-y-2 mb-5 font-normal text-gray-700">
                     <li>Номер по порядку</li>
                     <li>Инвентарный номер выбывающего ОС</li>
-                    <li>Фото инвентарного номера — инвентарник четкий, читаемый (не поворачивать)</li>
+                    <li>Фото инвентарного номера — инвентарник чёткий, читаемый (не поворачивать)</li>
                     <li>Фото общего вида ОС — без загромождения и без растягивания/сжатия фотографии</li>
                   </ol>
-                  
-                  <p className="italic text-gray-500">
-                    Фотоотчет вкладыжается в заявку в единственном экземпляре.
-                  </p>
+                  <p className="italic text-gray-500">Фотоотчет вкладывается в заявку в единственном экземпляре.</p>
                 </div>
               </div>
 
