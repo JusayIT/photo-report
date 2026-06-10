@@ -4,7 +4,7 @@ import { Camera, X, RefreshCw } from 'lucide-react';
 export default function SmartCamera({ id, field, onCapture, onClose }) {
   const videoRef = useRef(null);
   const [stream, setStream] = useState(null);
-  const [facingMode, setFacingMode] = useState('environment');
+  const [facingMode, setFacingMode] = useState('environment'); // По умолчанию задняя камера
 
   useEffect(() => {
     startCamera();
@@ -29,7 +29,7 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
       }
     } catch (err) {
       console.error("Ошибка доступа к камере:", err);
-      alert("Не удалось открыть камеру. Проверьте разрешения.");
+      alert("Не удалось открыть камеру. Проверьте разрешения в настройках браузера.");
     }
   };
 
@@ -43,40 +43,36 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
     setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
   };
 
-  // ================= СНИМОК С ЗАЩИТОЙ ОТ ЧБ ПОЛОС =================
   const capture = async () => {
     const video = videoRef.current;
     if (!video || !stream) return;
 
-    // ПУТЬ 1: Нативный захват кадра через ImageCapture (Решает проблему на Android)
+    // ПУТЬ 1: Нативный захват через ImageCapture (Защита от ЧБ-зебры на Android)
     try {
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack && ('ImageCapture' in window || window.ImageCapture)) {
         const imageCapture = new window.ImageCapture(videoTrack);
-        
-        // Запрашиваем прямой снимок с матрицы камеры
         const blob = await imageCapture.takePhoto();
         
         const reader = new FileReader();
         reader.onloadend = () => {
-          onCapture(reader.result, id, field); // Возвращает чистый цветной Base64 JPEG
+          onCapture(reader.result, id, field); // Возвращает цветной Base64 JPEG
         };
         reader.readAsDataURL(blob);
-        return; // Успешно выходим, холст не понадобился
+        return; 
       }
     } catch (error) {
-      console.warn("ImageCapture не поддерживается или дал сбой, переключаемся на Canvas Fallback:", error);
+      console.warn("ImageCapture дал сбой, переключаемся на Canvas Fallback:", error);
     }
 
-    // ПУТЬ 2: Резервный Canvas (Для iOS/Safari, где нет бага «зебры»)
+    // ПУТЬ 2: Резервный Canvas (Для iOS/Safari и десктопного режима)
     if (video.readyState < 2 || video.videoWidth === 0) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
-    // Флаг willReadFrequently: true заставляет систему обрабатывать графику в софтварном режиме,
-    // что спасает от сбоев видеопамяти графического чипа.
+    // willReadFrequently: true переводит обработку в программный режим, спасая от сбоев GPU
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (ctx) {
       ctx.imageSmoothingEnabled = true;
@@ -90,17 +86,17 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col justify-between p-4 font-sans">
-      {/* Верхняя панель */}
+      {/* Верхняя панель управления */}
       <div className="flex justify-between items-center text-white z-10 pt-2">
         <span className="text-xs font-mono bg-black/40 px-3 py-1 rounded-full border border-white/10">
-          {field === 'photoInv' ? 'Режим: Снимок инвентарника' : 'Режим: Общий вид ОС'}
+          {field === 'photoInv' ? 'Снимок инвентарника' : 'Общий вид ОС'}
         </span>
         <button onClick={onClose} className="p-2 bg-white/10 active:bg-white/20 rounded-full transition-colors">
           <X className="w-5 h-5 text-white" />
         </button>
       </div>
 
-      {/* Контейнер видеопотока */}
+      {/* Окно предпросмотра видео */}
       <div className="absolute inset-0 flex items-center justify-center bg-black">
         <video 
           ref={videoRef} 
@@ -110,10 +106,11 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
           className="w-full h-full object-contain"
         />
         
+        {/* Рамка-прицел для инвентарных номеров */}
         {field === 'photoInv' && (
           <div className="absolute border-2 border-dashed border-yellow-400 w-72 h-28 rounded-2xl pointer-events-none flex flex-col items-center justify-center p-2 bg-yellow-400/5 shadow-[0_0_50px_rgba(0,0,0,0.6)]">
             <span className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider bg-black/60 px-2 py-0.5 rounded-md">
-              Поместите инвентарный номер сюда
+              Поместите штрих-код / текст сюда
             </span>
           </div>
         )}

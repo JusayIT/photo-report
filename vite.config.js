@@ -5,6 +5,6 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: true // оставляем, чтобы можно было смотреть по локалке с телефона
+    host: true // Позволяет подключаться к локальному серверу с телефона по Wi-Fi
   }
 });
