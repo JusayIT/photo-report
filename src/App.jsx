@@ -179,10 +179,10 @@ export default function App() {
         cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
       });
 
-      let maxRowHeightPx = 130;  // Базовая аккуратная высота, если изображений нет
+      let maxRowHeightPx = 360;  // Базовая аккуратная высота, если изображений нет
       const imagesToInsert = [];
       const maxWidthPx = 180;    // Лимит ширины под вертикальный формат 3:4
-      const maxHeightPx = 240;   // Лимит высоты под вертикальный формат 3:4
+      const maxHeightPx = 360;   // Лимит высоты под вертикальный формат 3:4
 
       // Обработка фото инвентарного номера
       if (p.photoInv) {
