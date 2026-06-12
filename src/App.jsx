@@ -2,23 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import SmartCamera from './SmartCamera';
-import pdfMake from 'pdfmake/build/pdfmake';
-import pdfFonts from 'pdfmake/build/vfs_fonts';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { 
   Info, PlusCircle, FileText, ArrowLeft, Camera, Trash2, 
-  Send, Plus, Edit2, Download, CheckCircle 
+  Send, Plus, Edit2, Download, CheckCircle, AlertTriangle 
 } from 'lucide-react';
 
-// Безопасное подключение шрифтов, адаптированное под сборщик Vite
-try {
-  if (pdfFonts && pdfFonts.pdfMake) {
-    pdfMake.vfs = pdfFonts.pdfMake.vfs;
-  } else if (pdfFonts) {
-    pdfMake.vfs = pdfFonts.vfs || pdfFonts;
-  }
-} catch (error) {
-  console.error("Предупреждение: Не удалось автоматически привязать шрифты VFS:", error);
-}
+// ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
+const getImageDimensions = (base64Data) => {
+  return new Promise((resolve) => {
+    if (!base64Data) return resolve({ width: 0, height: 0 });
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => resolve({ width: 0, height: 0 });
+    img.src = base64Data;
+  });
+};
 
 export default function App() {
   const [screen, setScreen] = useState('main');
@@ -237,24 +237,31 @@ export default function App() {
 
   const handleShareExcel = async () => {
     try {
-      const docDefinition = getDocDefinition();
-      const fileName = `Фотоотчет_${previewDoc.type}_2026.pdf`;
-      const pdfDoc = pdfMake.createPdf(docDefinition);
-
-      pdfDoc.getBlob(async (blob) => {
-        const file = new File([blob], fileName, { type: 'application/pdf' });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: `Фотоотчет - ${previewDoc.type}`,
-            text: `Отчет от ${previewDoc.date}`
-          });
-        } else {
-          pdfDoc.download(fileName);
-        }
-      });
+      const blob = await generateExcelBlob();
+      const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
+      const file = new File([blob], fileName, { type: blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Фотоотчет - ${previewDoc.type}`,
+          text: `Отчет от ${previewDoc.date}`
+        });
+      } else {
+        saveAs(blob, fileName);
+      }
     } catch (error) {
-      console.error("Ошибка при отправке PDF:", error);
+      console.error("Ошибка при отправке:", error);
+      const blob = await generateExcelBlob();
+      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+    }
+  };
+
+  const handleDownloadExcel = async () => {
+    try {
+      const blob = await generateExcelBlob();
+      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+    } catch (error) {
+      console.error("Ошибка при скачивании файла:", error);
     }
   };
 
@@ -322,8 +329,7 @@ export default function App() {
               </div>
               <div className="flex gap-2">
                 <button onClick={saveDocument} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-all">Сохранить</button>
-                <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} 
-                        className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
+                <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
               </div>
             </header>
 
@@ -373,13 +379,13 @@ export default function App() {
           <>
             <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
               <button onClick={() => setScreen('main')} className="text-gray-500 p-1.5 rounded-lg mr-2"><ArrowLeft className="w-5 h-5" /></button>
-              <h1 className="text-base font-bold text-gray-800">Предпросмотр PDF</h1>
+              <h1 className="text-base font-bold text-gray-800">Предпросмотр Excel</h1>
             </header>
 
             <main className="flex flex-col flex-grow bg-gray-50 overflow-y-auto max-h-[740px]">
               <div className="p-4 bg-white border-b border-gray-200">
                 <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Файл генерации:</p>
-                <p className="text-xs font-mono font-bold text-emerald-600 truncate mt-0.5">Фотоотчет_{previewDoc.type}_2026.pdf</p>
+                <p className="text-xs font-mono font-bold text-emerald-600 truncate mt-0.5">Фотоотчет_{previewDoc.type}_2026.xlsx</p>
               </div>
 
               <div className="p-3 flex-grow overflow-x-auto">
@@ -397,26 +403,25 @@ export default function App() {
                       <div className="col-span-1 text-gray-400 font-bold">{i + 1}</div>
                       <div className="col-span-3 font-bold text-gray-700">{p.invNumber || '—'}</div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="pdf-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="pdf-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* НИЖНЯЯ ПАНЕЛЬ С ИСПРАВЛЕННЫМ ТЕКСТОМ И ОБНОВЛЕННЫМИ ФУНКЦИЯМИ */}
               <div className="bg-white border-t border-gray-200 p-4 rounded-t-2xl shadow-lg mt-auto">
-                <p className="text-xs font-bold text-gray-500 mb-3 text-center uppercase tracking-wide">Отправить отчет</p>
+                <p className="text-xs font-bold text-gray-500 mb-3 text-center uppercase tracking-wide">Отправить готовый отчет</p>
                 <div className="grid grid-cols-3 gap-2.5 mb-3">
-                  <button onClick={handleSharePdf} className="p-2.5 bg-emerald-50 text-emerald-700 active:bg-emerald-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-emerald-200/50">WhatsApp</button>
-                  <button onClick={handleSharePdf} className="p-2.5 bg-sky-50 text-sky-700 active:bg-sky-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-sky-200/50">Telegram</button>
-                  <button onClick={handleSharePdf} className="p-2.5 bg-blue-50 text-blue-700 active:bg-blue-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-blue-200/50">Почта</button>
+                  <button onClick={handleShareExcel} className="p-2.5 bg-emerald-50 text-emerald-700 active:bg-emerald-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-emerald-200/50">WhatsApp</button>
+                  <button onClick={handleShareExcel} className="p-2.5 bg-sky-50 text-sky-700 active:bg-sky-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-sky-200/50">Telegram</button>
+                  <button onClick={handleShareExcel} className="p-2.5 bg-blue-50 text-blue-700 active:bg-blue-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-blue-200/50">Почта</button>
                 </div>
-                <button onClick={handleDownloadPdf} className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all">
-                  <Download className="w-4 h-4" /><span>Скачать PDF файл (.pdf)</span>
+                <button onClick={handleDownloadExcel} className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all">
+                  <Download className="w-4 h-4" /><span>Скачать Excel файл (.xlsx)</span>
                 </button>
               </div>
             </main>
@@ -438,17 +443,13 @@ export default function App() {
                   <p className="mb-4 font-bold text-gray-900">
                     В заявки 1С на реализацию, благотворительность, списание обязательно должны вкладывать таблицу с указанием:
                   </p>
-                  
                   <ol className="list-decimal pl-5 space-y-2 mb-5 font-normal text-gray-700">
                     <li>Номер по порядку</li>
                     <li>Инвентарный номер выбывающего ОС</li>
                     <li>Фото инвентарного номера — инвентарник четкий, читаемый (не поворачивать)</li>
                     <li>Фото общего вида ОС — без загромождения и без растягивания/сжатия фотографии</li>
                   </ol>
-                  
-                  <p className="italic text-gray-500">
-                    Фотоотчет вкладыжается в заявку в единственном экземпляре.
-                  </p>
+                  <p className="italic text-gray-500">Фотоотчет вкладывается в заявку в единственном экземпляре.</p>
                 </div>
               </div>
 
