@@ -181,7 +181,7 @@ export default function ReportMemo({ onClose }) {
                   {/* Строка 6 (Фото 6a и 6b) */}
                   <tr className="border-b border-gray-200">
                     <td className="border-r border-gray-200 p-2 text-center font-bold text-gray-400">4</td>
-                    <td className="border-r border-gray-200 p-2 font-bold text-gray-700 text-center">3-99411</td>
+                    <td className="border-r border-gray-200 p-2 font-bold text-gray-700 text-center">je-2174</td>
                     <td className="border-r border-gray-200 p-1">
                       <div className="bg-red-50 rounded-lg border border-red-200 flex flex-col items-center justify-center p-1 min-h-[85px]">
                         <img src={img6a} alt="Брак тег 6" className="h-12 w-24 object-contain rounded bg-white shadow-sm opacity-75" />
