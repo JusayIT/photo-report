@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 // ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
-const getImageDimensions = (base64Data) => {
+const getImageDimensions = (base64Data) => { 
   return new Promise((resolve) => {
     if (!base64Data) return resolve({ width: 0, height: 0 });
     const img = new Image();
