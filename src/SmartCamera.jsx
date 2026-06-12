@@ -1,39 +1,23 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { Camera, X, RefreshCw } from 'lucide-react';
 
 export default function SmartCamera({ id, field, onCapture, onClose }) {
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
   const [stream, setStream] = useState(null);
+<<<<<<< HEAD
   const [error, setError] = useState(null);
   const [qualityWarning, setQualityWarning] = useState(null);
   const isOverlay = field === 'photoInv';
+=======
+  const [facingMode, setFacingMode] = useState('environment'); // По умолчанию задняя камера
+>>>>>>> bb2be7bdfc87e802c1f8bad635052fc40098b750
 
   useEffect(() => {
-    async function startCamera() {
-      try {
-        const constraints = {
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          },
-          audio: false
-        };
-
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-        }
-        setStream(mediaStream);
-        setError(null);
-      } catch (err) {
-        console.error("Ошибка при доступе к камере:", err);
-        setError("Не удалось запустить камеру. Проверьте разрешения.");
-      }
-    }
-
     startCamera();
+    return () => stopCamera();
+  }, [facingMode]);
 
+<<<<<<< HEAD
     return () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
@@ -61,8 +45,29 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
       // Считаем слишком яркие пиксели (блики/засветы)
       if (r > 245 && g > 245 && b > 245) {
         whitePixels++;
+=======
+  const startCamera = async () => {
+    if (stream) stopCamera();
+    try {
+      const constraints = {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+>>>>>>> bb2be7bdfc87e802c1f8bad635052fc40098b750
       }
+    } catch (err) {
+      console.error("Ошибка доступа к камере:", err);
+      alert("Не удалось открыть камеру. Проверьте разрешения в настройках браузера.");
     }
+<<<<<<< HEAD
 
     // 1. Проверка на избыточный засвет (более 15% площади кадра)
     if ((whitePixels / totalPixels) > 0.15) {
@@ -104,12 +109,25 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
     }
 
     return null;
+=======
+>>>>>>> bb2be7bdfc87e802c1f8bad635052fc40098b750
   };
 
-  const handleCapture = () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+  };
 
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  };
+
+  const capture = async () => {
+    const video = videoRef.current;
+    if (!video || !stream) return;
+
+<<<<<<< HEAD
     if (video && canvas) {
       const ctx = canvas.getContext('2d');
       
@@ -146,88 +164,91 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
       if (errorWarning) {
         setQualityWarning(errorWarning);
         return;
+=======
+    // ПУТЬ 1: Нативный захват через ImageCapture (Защита от ЧБ-зебры на Android)
+    try {
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack && ('ImageCapture' in window || window.ImageCapture)) {
+        const imageCapture = new window.ImageCapture(videoTrack);
+        const blob = await imageCapture.takePhoto();
+        
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          onCapture(reader.result, id, field); // Возвращает цветной Base64 JPEG
+        };
+        reader.readAsDataURL(blob);
+        return; 
+>>>>>>> bb2be7bdfc87e802c1f8bad635052fc40098b750
       }
+    } catch (error) {
+      console.warn("ImageCapture дал сбой, переключаемся на Canvas Fallback:", error);
+    }
 
+    // ПУТЬ 2: Резервный Canvas (Для iOS/Safari и десктопного режима)
+    if (video.readyState < 2 || video.videoWidth === 0) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    // willReadFrequently: true переводит обработку в программный режим, спасая от сбоев GPU
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      setQualityWarning(null);
       onCapture(dataUrl, id, field);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-2 select-none">
-      <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col relative">
+    <div className="fixed inset-0 bg-black z-50 flex flex-col justify-between p-4 font-sans">
+      {/* Верхняя панель управления */}
+      <div className="flex justify-between items-center text-white z-10 pt-2">
+        <span className="text-xs font-mono bg-black/40 px-3 py-1 rounded-full border border-white/10">
+          {field === 'photoInv' ? 'Снимок инвентарника' : 'Общий вид ОС'}
+        </span>
+        <button onClick={onClose} className="p-2 bg-white/10 active:bg-white/20 rounded-full transition-colors">
+          <X className="w-5 h-5 text-white" />
+        </button>
+      </div>
+
+      {/* Окно предпросмотра видео */}
+      <div className="absolute inset-0 flex items-center justify-center bg-black">
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          muted 
+          className="w-full h-full object-contain"
+        />
         
-        {/* Окно предупреждения о качестве */}
-        {qualityWarning && (
-          <div className="absolute inset-x-4 top-16 bg-red-50 border-2 border-red-200 p-4 rounded-2xl z-30 shadow-xl">
-            <div className="flex flex-col items-center text-center">
-              <span className="text-red-500 text-sm font-bold mb-1">⚠ Некачественный снимок</span>
-              <p className="text-gray-700 text-xs font-semibold leading-relaxed mb-3">{qualityWarning}</p>
-              <button 
-                onClick={() => setQualityWarning(null)} 
-                className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs py-2 px-5 rounded-xl shadow-md transition-all active:scale-95"
-              >
-                Попробовать снова
-              </button>
-            </div>
+        {/* Рамка-прицел для инвентарных номеров */}
+        {field === 'photoInv' && (
+          <div className="absolute border-2 border-dashed border-yellow-400 w-72 h-28 rounded-2xl pointer-events-none flex flex-col items-center justify-center p-2 bg-yellow-400/5 shadow-[0_0_50px_rgba(0,0,0,0.6)]">
+            <span className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider bg-black/60 px-2 py-0.5 rounded-md">
+              Поместите штрих-код / текст сюда
+            </span>
           </div>
         )}
-
-        {/* Верхняя панель */}
-        <div className="relative py-4 border-b border-gray-100 flex items-center justify-center bg-white">
-          <h3 className="text-gray-900 font-bold text-sm">
-            {isOverlay ? "Фото инвентарного номера" : "Фото общего вида объекта"}
-          </h3>
-          <button onClick={onClose} className="absolute right-4 text-gray-400 hover:text-gray-600 text-lg p-1">✕</button>
-        </div>
-
-        {/* Экран камеры в пропорции 3:4 */}
-        <div className="relative bg-gray-950 aspect-[3/4] w-full flex items-center justify-center overflow-hidden">
-          {error ? (
-            <div className="text-center p-6 max-w-xs">
-              <p className="text-red-400 text-xs font-semibold mb-2">⚠ Доступ ограничен</p>
-              <p className="text-gray-500 text-[11px]">{error}</p>
-            </div>
-          ) : (
-            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-          )}
-
-          {/* Трафарет рамки для инвентарного номера */}
-          {!error && isOverlay && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-              <div className="w-[85%] h-[22%] border-2 border-yellow-400 rounded-xl flex items-center justify-center p-4 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]">
-                <span className="text-yellow-400 text-[11px] font-bold text-center bg-black/60 px-2.5 py-1.5 rounded-lg tracking-wide">
-                  Наведите инвентарный номер в рамку
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Нижняя панель управления */}
-        <div className="bg-white px-6 py-4 flex items-center justify-center gap-4 border-t border-gray-100">
-          <button
-            onClick={onClose}
-            className="flex-1 max-w-[130px] py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
-          >
-            ✕ Отмена
-          </button>
-
-          <button
-            onClick={handleCapture}
-            disabled={!!error || !!qualityWarning}
-            className="flex-1 max-w-[170px] py-3 px-5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20">
-              <path d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586l-1.293-1.293A1 1 0 0012.414 3H7.586a1 1 0 00-.707.293L5.586 5H4zm6 9a3 3 0 110-6 3 3 0 010 6z" />
-            </svg>
-            Снять кадр
-          </button>
-        </div>
-
       </div>
-      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Нижняя панель управления */}
+      <div className="flex justify-between items-center gap-6 px-10 pb-6 z-10 mt-auto">
+        <button onClick={toggleCamera} className="p-3.5 bg-white/10 active:bg-white/20 text-white rounded-full transition-all active:scale-95 border border-white/5">
+          <RefreshCw className="w-5 h-5" />
+        </button>
+        
+        <button onClick={capture} className="w-20 h-20 bg-white p-1 rounded-full flex items-center justify-center active:scale-90 transition-all shadow-xl shadow-black/50">
+          <div className="w-full h-full border-4 border-black/5 rounded-full flex items-center justify-center">
+            <div className="w-14 h-14 bg-red-600 rounded-full hover:bg-red-700 transition-colors" />
+          </div>
+        </button>
+
+        <div className="w-12 h-12 invisible" />
+      </div>
     </div>
   );
 }
