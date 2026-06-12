@@ -10,7 +10,6 @@ import {
   Send, Plus, Edit2, Download 
 } from 'lucide-react';
 
-// ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
 const getImageDimensions = (base64Data) => { 
   return new Promise((resolve) => {
     if (!base64Data) return resolve({ width: 0, height: 0 });
@@ -31,11 +30,6 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
 
-  // Состояния для фоновой предгенерации готового системного Файла
-  const [excelFile, setExcelFile] = useState(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  // ================= ПЕРЕХВАТ ВХОДЯЩИХ ФАЙЛОВ ИЗ ГАЛЕРЕИ (SHARE TARGET) =================
   useEffect(() => {
     async function checkSharedFiles() {
       if (!('caches' in window)) return;
@@ -45,7 +39,6 @@ export default function App() {
         if (response) {
           const blob = await response.blob();
           const file = new File([blob], "shared-photo.jpg", { type: blob.type });
-       
           const reader = new FileReader();
           reader.onloadend = () => {
             const dataUrl = reader.result;
@@ -66,34 +59,6 @@ export default function App() {
     window.addEventListener('focus', checkSharedFiles);
     return () => window.removeEventListener('focus', checkSharedFiles);
   }, []);
-
-  // Абсолютная фоновая сборка объекта File при открытии экрана предпросмотра
-  useEffect(() => {
-    if (!previewDoc) {
-      setExcelFile(null);
-      return;
-    }
-
-    let isMounted = true;
-    setIsGenerating(true);
-
-    generateExcelBlob(previewDoc)
-      .then(blob => {
-        if (isMounted) {
-          // Заранее упаковываем Blob в валидный File с латинским именем
-          const systemFileName = `Report_${previewDoc.type}_2026.xlsx`;
-          const file = new File([blob], systemFileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-          setExcelFile(file);
-          setIsGenerating(false);
-        }
-      })
-      .catch(err => {
-        console.error("Ошибка предгенерации файла:", err);
-        if (isMounted) setIsGenerating(false);
-      });
-
-    return () => { isMounted = false; };
-  }, [previewDoc]);
 
   const addPosition = () => {
     const newId = positions.length > 0 ? Math.max(...positions.map(p => p.id)) + 1 : 1;
@@ -160,24 +125,21 @@ export default function App() {
     setScreen('main');
   };
 
-  // ================= ГЕНЕРАЦИЯ EXCEL В БЛОБ =================
-  const generateExcelBlob = async (doc) => {
+  const generateExcelBlob = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Фотоотчет');
-
     worksheet.columns = [
       { key: 'no', width: 6 }, { key: 'inv', width: 25 }, { key: 'photo1', width: 28 }, { key: 'photo2', width: 28 }
     ];
-
     worksheet.mergeCells('A1:D1');
     const titleCell = worksheet.getCell('A1');
-    titleCell.value = `Фотоотчет - ${doc.type}`;
+    titleCell.value = `Фотоотчет - ${previewDoc.type}`;
     titleCell.font = { name: 'Calibri', size: 14, bold: true };
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
     worksheet.mergeCells('A2:D2');
     const dateCell = worksheet.getCell('A2');
-    dateCell.value = `Дата: ${doc.date} | Количество ОС: ${doc.positions?.length || 0}`;
+    dateCell.value = `Дата: ${previewDoc.date} | Количество ОС: ${previewDoc.positions?.length || 0}`;
     dateCell.font = { name: 'Calibri', size: 11 };
     dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
@@ -191,7 +153,7 @@ export default function App() {
       cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
     });
 
-    for (const [index, p] of doc.positions.entries()) {
+    for (const [index, p] of previewDoc.positions.entries()) {
       const row = worksheet.addRow([index + 1, p.invNumber || '—', '', '']);
       row.eachCell((cell) => {
         cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
@@ -223,7 +185,6 @@ export default function App() {
       }
 
       row.height = (maxRowHeightPx + 16) / 1.333;
-
       imagesToInsert.forEach((imgData) => {
         try {
           const base64Image = imgData.base64.split(';base64,').pop();
@@ -243,47 +204,28 @@ export default function App() {
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   };
 
-  // ================= ФУНКЦИЯ ШЕРИНГА С АВТОМАТИЧЕСКИМ СМАРТ-ФОЛБЕКОМ =================
   const handleShareExcel = async () => {
-    if (!excelFile) return;
-
-    // Вспомогательный перехватчик на случай блокировок системы
-    const triggerSmartFallback = (messageText) => {
-      saveAs(excelFile, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
-      alert(`💡 Защита смартфона ограничила прямую отправку файлов .xlsx из браузера.\n\n📌 РЕШЕНИЕ: Файл уже АВТОМАТИЧЕСКИ СКАЧАН в вашу систему (папка Файлы/Загрузки). Откройте Telegram или WhatsApp и просто прикрепите его к сообщению.`);
-    };
-
-    // 1. Быстрая проверка поддержки API браузером
-    if (!navigator.share || !navigator.canShare) {
-      triggerSmartFallback();
-      return;
-    }
-
-    // 2. Проверка, разрешает ли ОС делиться конкретно этим xlsx типом
-    if (!navigator.canShare({ files: [excelFile] })) {
-      triggerSmartFallback();
-      return;
-    }
-
-    // 3. Мгновенное выполнение без единого await перед вызовом API
     try {
-      await navigator.share({ 
-        files: [excelFile], 
-        title: `Фотоотчет - ${previewDoc.type}`, 
-        text: `Отчет от ${previewDoc.date}` 
-      });
-    } catch (error) {
-      // Игнорируем, если пользователь сам закрыл шторку крестиком
-      if (error.name !== 'AbortError') {
-        console.warn("Share API отклонён системой:", error.message);
-        triggerSmartFallback();
+      const blob = await generateExcelBlob();
+      const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
+      const file = new File([blob], fileName, { type: blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Фотоотчет - ${previewDoc.type}`, text: `Отчет от ${previewDoc.date}` });
+      } else {
+        saveAs(blob, fileName);
       }
+    } catch (error) {
+      const blob = await generateExcelBlob();
+      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
     }
   };
 
-  const handleDownloadExcel = () => {
-    if (excelFile) {
-      saveAs(excelFile, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+  const handleDownloadExcel = async () => {
+    try {
+      const blob = await generateExcelBlob();
+      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -347,7 +289,6 @@ export default function App() {
                 <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
               </div>
             </header>
-       
             <main className="flex flex-col flex-grow px-4 py-4 bg-white overflow-y-auto max-h-[740px]">
               <div className="mb-4">
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Тип списания:</label>
@@ -359,9 +300,11 @@ export default function App() {
                 </select>
               </div>
 
+              {/* ================= ИСПРАВЛЕННЫЕ СТРОКИ ПОЗИЦИЙ С ИСПОЛЬЗОВАНИЕМ GRID ================= */}
               <div className="flex flex-col gap-3.5 mb-4">
                 {positions.map((pos, index) => (
                   <div key={pos.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
+                    {/* Грид-шапка для колонок */}
                     <div className="bg-gray-50/80 px-3 py-2 grid grid-cols-12 gap-2 items-center border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider relative">
                       <div className="col-span-1 text-center">№</div>
                       <div className="col-span-3 text-center">Инв. номер</div>
@@ -374,6 +317,7 @@ export default function App() {
                       )}
                     </div>
                     
+                    {/* Контент строки по жесткой сетке grid-cols-12 */}
                     <div className="p-3 grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-1 text-center text-xs font-bold text-gray-400">{index + 1}</div>
                       
@@ -454,35 +398,22 @@ export default function App() {
                   ))}
                 </div>
               </div>
-
-              {/* Панель управления с интеграцией защищенного фолбека */}
-              <div className="bg-white border-t border-gray-200 p-4 rounded-t-[24px] shadow-lg mt-auto flex flex-col gap-3">
-                <button 
-                  onClick={handleShareExcel} 
-                  disabled={isGenerating || !excelFile}
-                  className={`w-full text-white text-sm font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2.5 shadow-md transition-all active:scale-[0.99] ${
-                    isGenerating ? 'bg-gray-400 shadow-none cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
-                  }`}
-                >
-                  <Send className="w-4 h-4 stroke-[2.5]" />
-                  <span>{isGenerating ? 'Формирование Excel файла...' : 'Отправить отчет (WhatsApp, TG, Почта)'}</span>
-                </button>
-
-                <button 
-                  onClick={handleDownloadExcel} 
-                  disabled={isGenerating || !excelFile}
-                  className={`w-full border text-xs font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors ${
-                    isGenerating ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
-                  }`}
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Просто скачать файл (.xlsx)</span>
+              <div className="bg-white border-t border-gray-200 p-4 rounded-t-2xl shadow-lg mt-auto">
+                <p className="text-xs font-bold text-gray-500 mb-3 text-center uppercase tracking-wide">Отправить готовый отчет</p>
+                <div className="grid grid-cols-3 gap-2.5 mb-3">
+                  <button onClick={handleShareExcel} className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold text-center border border-emerald-200/50">WhatsApp</button>
+                  <button onClick={handleShareExcel} className="p-2.5 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold text-center border border-sky-200/50">Telegram</button>
+                  <button onClick={handleShareExcel} className="p-2.5 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold text-center border border-blue-200/50">Почта</button>
+                </div>
+                <button onClick={handleDownloadExcel} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md">
+                  <Download className="w-4 h-4" /><span>Скачать Excel файл (.xlsx)</span>
                 </button>
               </div>
             </main>
           </>
         )}
 
+        {/* ================= ВЫЗОВ ВЫНЕСЕННОГО КОМПОНЕНТА ПАМЯТКИ ================= */}
         {screen === 'info' && (
           <ReportMemo onClose={() => setScreen('main')} />
         )}
