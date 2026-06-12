@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import SmartCamera from './SmartCamera';
-import ReportMemo from './ReportMemo'; // Подключаем внешний компонент памятки
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { 
   Info, PlusCircle, FileText, ArrowLeft, Camera, Trash2, 
-  Send, Plus, Edit2, Download 
+  Send, Plus, Edit2, Download, CheckCircle, AlertTriangle 
 } from 'lucide-react';
 
+// ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
 const getImageDimensions = (base64Data) => { 
   return new Promise((resolve) => {
     if (!base64Data) return resolve({ width: 0, height: 0 });
@@ -30,31 +30,42 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
 
+  // ================= ПЕРЕХВАТ ВХОДЯЩИХ ФАЙЛОВ ИЗ ГАЛЕРЕИ =================
   useEffect(() => {
     async function checkSharedFiles() {
       if (!('caches' in window)) return;
+      
       try {
         const cache = await caches.open('shared-files-cache');
         const response = await cache.match('/shared-incoming-file');
+        
         if (response) {
           const blob = await response.blob();
           const file = new File([blob], "shared-photo.jpg", { type: blob.type });
+          
           const reader = new FileReader();
           reader.onloadend = () => {
             const dataUrl = reader.result;
+            
             setPositions(prev => {
               const newId = prev.length > 0 ? Math.max(...prev.map(p => p.id)) + 1 : 1;
-              return [...prev, { id: newId, invNumber: '', photoInv: null, photoObj: dataUrl }];
+              return [
+                ...prev, 
+                { id: newId, invNumber: '', photoInv: null, photoObj: dataUrl }
+              ];
             });
+            
             setScreen(currentScreen => currentScreen === 'main' ? 'create' : currentScreen);
           };
           reader.readAsDataURL(file);
+          
           await cache.delete('/shared-incoming-file');
         }
       } catch (error) {
         console.error("Ошибка при получении файла из Share Target:", error);
       }
     }
+
     checkSharedFiles();
     window.addEventListener('focus', checkSharedFiles);
     return () => window.removeEventListener('focus', checkSharedFiles);
@@ -125,12 +136,18 @@ export default function App() {
     setScreen('main');
   };
 
+  // ================= ГЕНЕРАЦИЯ EXCEL (УМНЫЕ ПРОПОРЦИИ И ДИНАМИЧЕСКИЙ РАЗМЕР) =================
   const generateExcelBlob = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Фотоотчет');
+
     worksheet.columns = [
-      { key: 'no', width: 6 }, { key: 'inv', width: 25 }, { key: 'photo1', width: 28 }, { key: 'photo2', width: 28 }
+      { key: 'no', width: 6 },
+      { key: 'inv', width: 25 },
+      { key: 'photo1', width: 28 }, 
+      { key: 'photo2', width: 28 }  
     ];
+
     worksheet.mergeCells('A1:D1');
     const titleCell = worksheet.getCell('A1');
     titleCell.value = `Фотоотчет - ${previewDoc.type}`;
@@ -143,7 +160,8 @@ export default function App() {
     dateCell.font = { name: 'Calibri', size: 11 };
     dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    worksheet.addRow([]);
+    worksheet.addRow([]); 
+
     const headerRow = worksheet.addRow(['№', 'Инвентарный номер', 'Фото инвентарного номера', 'Фото общего вида ОС']);
     headerRow.height = 25;
     headerRow.eachCell((cell) => {
@@ -160,46 +178,52 @@ export default function App() {
         cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
       });
 
-      let maxRowHeightPx = 360;
+      let maxRowHeightPx = 360;  
       const imagesToInsert = [];
-      const maxWidthPx = 180;
+      const maxWidthPx = 180;    
       const maxHeightPx = 360;
 
       if (p.photoInv) {
         const dims = await getImageDimensions(p.photoInv);
         if (dims.width > 0 && dims.height > 0) {
           const scale = Math.min(maxWidthPx / dims.width, maxHeightPx / dims.height);
-          const w = dims.width * scale; const h = dims.height * scale;
+          const w = dims.width * scale;
+          const h = dims.height * scale;
           imagesToInsert.push({ base64: p.photoInv, col: 2, w, h });
           if (h > maxRowHeightPx) maxRowHeightPx = h;
         }
       }
+
       if (p.photoObj) {
         const dims = await getImageDimensions(p.photoObj);
         if (dims.width > 0 && dims.height > 0) {
           const scale = Math.min(maxWidthPx / dims.width, maxHeightPx / dims.height);
-          const w = dims.width * scale; const h = dims.height * scale;
+          const w = dims.width * scale;
+          const h = dims.height * scale;
           imagesToInsert.push({ base64: p.photoObj, col: 3, w, h });
           if (h > maxRowHeightPx) maxRowHeightPx = h;
         }
       }
 
       row.height = (maxRowHeightPx + 16) / 1.333;
+
       imagesToInsert.forEach((imgData) => {
         try {
           const base64Image = imgData.base64.split(';base64,').pop();
           const imageId = workbook.addImage({ base64: base64Image, extension: 'jpeg' });
           const rowOffset = Math.max(8, Math.round((maxRowHeightPx - imgData.h) / 2) + 8);
+          
           worksheet.addImage(imageId, {
             tl: { col: imgData.col, row: row.number - 1, colOff: 12, rowOff: rowOffset },
             ext: { width: imgData.w, height: imgData.h },
             editAs: 'oneCell'
           });
         } catch (error) {
-          console.error("Ошибка вставки картинки в Excel:", error);
+          console.error("Ошибка при добавлении изображения в Excel:", error);
         }
       });
     }
+
     const buffer = await workbook.xlsx.writeBuffer();
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   };
@@ -209,12 +233,18 @@ export default function App() {
       const blob = await generateExcelBlob();
       const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
       const file = new File([blob], fileName, { type: blob.type });
+
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Фотоотчет - ${previewDoc.type}`, text: `Отчет от ${previewDoc.date}` });
+        await navigator.share({
+          files: [file],
+          title: `Фотоотчет - ${previewDoc.type}`,
+          text: `Отчет от ${previewDoc.date}`
+        });
       } else {
         saveAs(blob, fileName);
       }
     } catch (error) {
+      console.error("Ошибка при отправке:", error);
       const blob = await generateExcelBlob();
       saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
     }
@@ -225,7 +255,7 @@ export default function App() {
       const blob = await generateExcelBlob();
       saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
     } catch (error) {
-      console.error(error);
+      console.error("Ошибка при скачивании файла:", error);
     }
   };
 
@@ -234,7 +264,10 @@ export default function App() {
       <div className="w-full max-w-[460px] min-h-screen sm:min-h-[850px] flex flex-col bg-white sm:shadow-2xl sm:rounded-3xl overflow-hidden border border-gray-200/60 relative">
         
         {cameraActive && (
-          <SmartCamera id={cameraTarget.id} field={cameraTarget.field} onCapture={handleCapturePhoto} onClose={() => setCameraActive(false)} />
+          <SmartCamera 
+            id={cameraTarget.id} field={cameraTarget.field}
+            onCapture={handleCapturePhoto} onClose={() => setCameraActive(false)} 
+          />
         )}
 
         {screen === 'main' && (
@@ -245,29 +278,33 @@ export default function App() {
                 <Info className="w-5 h-5" />
               </button>
             </header>
+
             <main className="flex flex-col flex-grow px-5 py-4 bg-white">
               <button onClick={() => setScreen('create')} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 shadow-md shadow-blue-100 transition-all active:scale-[0.99] mb-5 text-base">
                 <PlusCircle className="w-5 h-5 stroke-[2.5]" />
                 <span>Создать</span>
               </button>
+
               {reports.length === 0 ? (
                 <div className="flex flex-col flex-grow items-center justify-center py-20 text-gray-400">
-                  <div className="bg-gray-50 p-6 rounded-full mb-3 ring-8 ring-gray-50/50"><FileText className="w-12 h-12 text-gray-300" /></div>
-                  <p className="text-sm font-medium">У вас нет документов</p>
+                  <div className="bg-gray-50 p-6 rounded-full mb-3 ring-8 ring-gray-50/50">
+                    <FileText className="w-12 h-12 text-gray-300 stroke-[1.2]" />
+                  </div>
+                  <p className="text-sm font-medium text-gray-400">У вас нет документов</p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3 overflow-y-auto max-h-[620px] pb-4">
                   {reports.map((rep) => (
-                    <div key={rep.id} className="p-4 border border-gray-200/80 rounded-2xl bg-white shadow-sm flex items-center justify-between gap-2">
+                    <div key={rep.id} className="p-4 border border-gray-200/80 rounded-2xl bg-white shadow-sm hover:border-gray-300 transition-all flex items-center justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-gray-800 text-sm truncate">Фотоотчет: {rep.type}</h3>
                         <p className="text-xs text-gray-400 mt-0.5">Количество ОС: <span className="font-semibold text-gray-600">{rep.count}</span></p>
                         <p className="text-[11px] text-gray-400 mt-1">Дата: {rep.date}</p>
                       </div>
                       <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100">
-                        <button onClick={() => openEdit(rep)} className="p-2 text-gray-500 hover:text-blue-500 hover:bg-white rounded-lg"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => openPreview(rep)} className="p-2 text-blue-500 hover:text-blue-600 hover:bg-white rounded-lg"><Send className="w-4 h-4" /></button>
-                        <button onClick={() => deleteDocument(rep.id)} className="p-2 text-red-400 hover:text-red-500 hover:bg-white rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => openEdit(rep)} className="p-2 text-gray-500 hover:text-blue-500 hover:bg-white rounded-lg transition-colors"><Edit2 className="w-4 h-4" /></button>
+                        <button onClick={() => openPreview(rep)} className="p-2 text-blue-500 hover:text-blue-600 hover:bg-white rounded-lg transition-colors"><Send className="w-4 h-4" /></button>
+                        <button onClick={() => deleteDocument(rep.id)} className="p-2 text-red-400 hover:text-red-500 hover:bg-white rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </div>
                   ))}
@@ -285,14 +322,15 @@ export default function App() {
                 <h1 className="text-base font-bold text-gray-800">Создание фотоотчета</h1>
               </div>
               <div className="flex gap-2">
-                <button onClick={saveDocument} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-3 rounded-lg text-xs">Сохранить</button>
+                <button onClick={saveDocument} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-all">Сохранить</button>
                 <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
               </div>
             </header>
+
             <main className="flex flex-col flex-grow px-4 py-4 bg-white overflow-y-auto max-h-[740px]">
               <div className="mb-4">
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Тип списания:</label>
-                <select value={docType} onChange={(e) => setDocType(e.target.value)} className="w-full bg-blue-50/40 border border-blue-200 text-gray-800 rounded-xl px-3 py-2.5 text-sm focus:outline-none appearance-none cursor-pointer font-medium">
+                <select value={docType} onChange={(e) => setDocType(e.target.value)} className="w-full bg-blue-50/40 border border-blue-200 text-gray-800 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 font-medium appearance-none cursor-pointer">
                   <option value="Списание">Списание</option>
                   <option value="Реализация">Реализация</option>
                   <option value="Благотворительность">Передача в благотворительность</option>
@@ -300,59 +338,27 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ================= ИСПРАВЛЕННЫЕ СТРОКИ ПОЗИЦИЙ С ИСПОЛЬЗОВАНИЕМ GRID ================= */}
               <div className="flex flex-col gap-3.5 mb-4">
                 {positions.map((pos, index) => (
                   <div key={pos.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
-                    {/* Грид-шапка для колонок */}
-                    <div className="bg-gray-50/80 px-3 py-2 grid grid-cols-12 gap-2 items-center border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider relative">
-                      <div className="col-span-1 text-center">№</div>
-                      <div className="col-span-3 text-center">Инв. номер</div>
-                      <div className="col-span-4 text-center">Фото инв.</div>
-                      <div className="col-span-4 text-center">Общий вид ОС</div>
-                      {positions.length > 1 && (
-                        <button onClick={() => deletePosition(pos.id)} className="text-red-400 hover:text-red-600 transition-colors absolute right-2.5 top-1/2 -translate-y-1/2 p-1">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                    <div className="bg-gray-50/80 px-3 py-1.5 flex justify-between items-center border-b border-gray-100 text-[11px] font-bold text-gray-400">
+                      <div className="flex gap-6"><span className="w-3">№</span><span>Инвентарный номер</span></div>
+                      {positions.length > 1 && <button onClick={() => deletePosition(pos.id)} className="text-red-400 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>}
                     </div>
-                    
-                    {/* Контент строки по жесткой сетке grid-cols-12 */}
-                    <div className="p-3 grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-1 text-center text-xs font-bold text-gray-400">{index + 1}</div>
+                    <div className="p-3 flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-gray-400 w-3">{index + 1}</span>
+                      <input type="text" placeholder="3-1234" value={pos.invNumber} onChange={(e) => handleInvChange(pos.id, e.target.value)} className="w-[100px] bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" />
                       
-                      <div className="col-span-3">
-                        <input 
-                          type="text" placeholder="3-1234" value={pos.invNumber} 
-                          onChange={(e) => handleInvChange(pos.id, e.target.value)} 
-                          className="w-full bg-white border border-gray-300 rounded-lg px-1 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" 
-                        />
-                      </div>
-                      
-                      <div className="col-span-4">
-                        <div className="w-full h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-200">
-                          {!pos.photoInv ? (
-                            <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium hover:bg-blue-50/40 transition-colors">
-                              <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" />
-                              <span className="scale-90">В рамку</span>
-                            </button>
-                          ) : (
-                            <img src={pos.photoInv} onClick={() => openCamera(pos.id, 'photoInv')} className="max-w-full max-h-full object-contain cursor-pointer" alt="инв" />
-                          )}
-                        </div>
+                      <div className="w-[85px] h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
+                        {!pos.photoInv ? (
+                          <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">В рамку</span></button>
+                        ) : <img src={pos.photoInv} onClick={() => openCamera(pos.id, 'photoInv')} className="max-w-full max-h-full object-contain cursor-pointer" alt="инв" />}
                       </div>
 
-                      <div className="col-span-4">
-                        <div className="w-full h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-200">
-                          {!pos.photoObj ? (
-                            <button onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium hover:bg-blue-50/40 transition-colors">
-                              <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" />
-                              <span className="scale-90">Фото ОС</span>
-                            </button>
-                          ) : (
-                            <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="max-w-full max-h-full object-contain cursor-pointer" alt="ос" />
-                          )}
-                        </div>
+                      <div className="w-[85px] h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
+                        {!pos.photoObj ? (
+                          <button onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">Фото ОС</span></button>
+                        ) : <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="max-w-full max-h-full object-contain cursor-pointer" alt="ос" />}
                       </div>
                     </div>
                   </div>
@@ -366,14 +372,16 @@ export default function App() {
         {screen === 'preview' && previewDoc && (
           <>
             <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
-              <button onClick={() => setScreen('main')} className="text-gray-500 p-1.5 rounded-lg mr-2"><ArrowLeft className="w-5 h-5" /></button>
+              <button onClick={() => setScreen('main')} className="text-gray-500 p-1.5 rounded-xl mr-2 hover:bg-gray-100"><ArrowLeft className="w-5 h-5" /></button>
               <h1 className="text-base font-bold text-gray-800">Предпросмотр Excel</h1>
             </header>
+
             <main className="flex flex-col flex-grow bg-gray-50 overflow-y-auto max-h-[740px]">
               <div className="p-4 bg-white border-b border-gray-200">
                 <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Файл генерации:</p>
                 <p className="text-xs font-mono font-bold text-emerald-600 truncate mt-0.5">Фотоотчет_{previewDoc.type}_2026.xlsx</p>
               </div>
+
               <div className="p-3 flex-grow overflow-x-auto">
                 <div className="min-w-[400px] bg-white border border-gray-300 shadow-sm rounded-lg overflow-hidden font-mono text-[11px]">
                   <div className="p-2 border-b border-gray-200 font-bold text-gray-800 text-center bg-gray-50">Фотоотчет - {previewDoc.type}</div>
@@ -389,33 +397,103 @@ export default function App() {
                       <div className="col-span-1 text-gray-400 font-bold">{i + 1}</div>
                       <div className="col-span-3 font-bold text-gray-700">{p.invNumber || '—'}</div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded shadow-sm" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded shadow-sm" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-              <div className="bg-white border-t border-gray-200 p-4 rounded-t-2xl shadow-lg mt-auto">
-                <p className="text-xs font-bold text-gray-500 mb-3 text-center uppercase tracking-wide">Отправить готовый отчет</p>
-                <div className="grid grid-cols-3 gap-2.5 mb-3">
-                  <button onClick={handleShareExcel} className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold text-center border border-emerald-200/50">WhatsApp</button>
-                  <button onClick={handleShareExcel} className="p-2.5 bg-sky-50 text-sky-700 rounded-xl text-xs font-bold text-center border border-sky-200/50">Telegram</button>
-                  <button onClick={handleShareExcel} className="p-2.5 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold text-center border border-blue-200/50">Почта</button>
-                </div>
-                <button onClick={handleDownloadExcel} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md">
-                  <Download className="w-4 h-4" /><span>Скачать Excel файл (.xlsx)</span>
+
+              {/* ================= ОБНОВЛЕННАЯ ПАНЕЛЬ СЕНДИНГА С ВЛОЖЕННЫМ ФАЙЛОМ ================= */}
+              <div className="bg-white border-t border-gray-200 p-4 rounded-t-[24px] shadow-lg mt-auto flex flex-col gap-3">
+                <button 
+                  onClick={handleShareExcel} 
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2.5 shadow-md shadow-blue-100 transition-all active:scale-[0.99]"
+                >
+                  <Send className="w-4 h-4 stroke-[2.5]" />
+                  <span>Отправить отчет (WhatsApp, Telegram, Почта)</span>
+                </button>
+
+                <button 
+                  onClick={handleDownloadExcel} 
+                  className="w-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Скачать файл (.xlsx)</span>
                 </button>
               </div>
             </main>
           </>
         )}
 
-        {/* ================= ВЫЗОВ ВЫНЕСЕННОГО КОМПОНЕНТА ПАМЯТКИ ================= */}
         {screen === 'info' && (
-          <ReportMemo onClose={() => setScreen('main')} />
+          <>
+            <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10 shadow-sm">
+              <button onClick={() => setScreen('main')} className="text-gray-500 p-1.5 rounded-xl mr-2 hover:bg-gray-100 transition-colors">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h1 className="text-xl font-bold text-gray-900 tracking-tight">Требования к фотоотчету</h1>
+            </header>
+
+            <main className="flex flex-col flex-grow bg-white overflow-y-auto">
+              <div className="p-4">
+                <div className="bg-gray-50/80 rounded-[20px] p-5 text-[14px] text-gray-700 leading-relaxed shadow-sm border border-gray-100">
+                  <p className="mb-4 font-bold text-gray-900">
+                    В заявки 1С на реализацию, благотворительность, списание обязательно должны вкладывать таблицу с указанием:
+                  </p>
+                  <ol className="list-decimal pl-5 space-y-2 mb-5 font-normal text-gray-700">
+                    <li>Номер по порядку</li>
+                    <li>Инвентарный номер выбывающего ОС</li>
+                    <li>Фото инвентарного номера — инвентарник четкий, читаемый (не поворачивать)</li>
+                    <li>Фото общего вида ОС — без загромождения и без растягивания/сжатия фотографии</li>
+                  </ol>
+                  <p className="italic text-gray-500">Фотоотчет вкладывается в заявку в единственном экземпляре.</p>
+                </div>
+              </div>
+
+              <div className="px-4 pb-10 flex flex-col gap-6">
+                <div className="border-[3px] border-[#00B050] rounded-[24px] overflow-hidden bg-white shadow-sm">
+                  <div className="bg-[#00B050]/10 flex items-center justify-center gap-2 py-3 border-b-[3px] border-[#00B050]">
+                    <CheckCircle className="w-5 h-5 text-[#00B050]" />
+                    <h2 className="text-[#00B050] font-bold text-[15px]">Пример корректного фотоотчета</h2>
+                  </div>
+                  <div className="w-full overflow-x-auto">
+                    <table className="w-full text-[11px] text-left border-collapse min-w-[340px]">
+                      <thead>
+                        <tr className="border-b border-gray-300 bg-gray-50">
+                          <th className="border-r border-gray-300 p-1.5 text-center w-7 font-bold text-gray-500">№</th>
+                          <th className="border-r border-gray-300 p-1.5 text-center font-bold text-gray-500">Инв. номер</th>
+                          <th className="border-r border-gray-300 p-1.5 text-center w-[125px] font-bold text-gray-500">Фото инвентарника</th>
+                          <th className="p-1.5 text-center w-[125px] font-bold text-gray-500">Фото общего вида</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-gray-200">
+                          <td className="border-r border-gray-200 p-2 text-center font-bold text-gray-400">1</td>
+                          <td className="border-r border-gray-200 p-2 font-bold text-gray-700">Uk-2617</td>
+                          <td className="border-r border-gray-200 p-1">
+                            <div className="h-14 bg-emerald-50 rounded-lg border border-emerald-200 flex flex-col items-center justify-center text-[10px] text-emerald-700 font-semibold p-1 text-center leading-tight">
+                              <span>[ Штрих-код ]</span>
+                              <span className="text-[9px] text-emerald-600 font-normal mt-0.5">Четкий, горизонтальный</span>
+                            </div>
+                          </td>
+                          <td className="p-1">
+                            <div className="h-14 bg-emerald-50 rounded-lg border border-emerald-200 flex flex-col items-center justify-center text-[10px] text-emerald-700 font-semibold p-1 text-center leading-tight">
+                              <span>[ Стол ]</span>
+                              <span className="text-[9px] text-emerald-600 font-normal mt-0.5">Виден полностью</span>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </>
         )}
 
       </div>
