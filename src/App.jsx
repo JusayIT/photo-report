@@ -31,8 +31,8 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
 
-  // Новые состояния для фоновой сборки файла и предотвращения блокировки Share API
-  const [excelBlob, setExcelBlob] = useState(null);
+  // Состояния для фоновой предгенерации готового системного Файла
+  const [excelFile, setExcelFile] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
   // ================= ПЕРЕХВАТ ВХОДЯЩИХ ФАЙЛОВ ИЗ ГАЛЕРЕИ (SHARE TARGET) =================
@@ -67,10 +67,10 @@ export default function App() {
     return () => window.removeEventListener('focus', checkSharedFiles);
   }, []);
 
-  // Фоновая генерация Excel сразу при открытии экрана предпросмотра
+  // Абсолютная фоновая сборка объекта File при открытии экрана предпросмотра
   useEffect(() => {
     if (!previewDoc) {
-      setExcelBlob(null);
+      setExcelFile(null);
       return;
     }
 
@@ -80,12 +80,15 @@ export default function App() {
     generateExcelBlob(previewDoc)
       .then(blob => {
         if (isMounted) {
-          setExcelBlob(blob);
+          // Заранее упаковываем Blob в валидный File с латинским именем
+          const systemFileName = `Report_${previewDoc.type}_2026.xlsx`;
+          const file = new File([blob], systemFileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          setExcelFile(file);
           setIsGenerating(false);
         }
       })
       .catch(err => {
-        console.error("Ошибка предгенерации Excel:", err);
+        console.error("Ошибка предгенерации файла:", err);
         if (isMounted) setIsGenerating(false);
       });
 
@@ -157,7 +160,7 @@ export default function App() {
     setScreen('main');
   };
 
-  // ================= ГЕНЕРАЦИЯ EXCEL (ПЕРЕПИСАНА ПОД ПАРАМЕТР) =================
+  // ================= ГЕНЕРАЦИЯ EXCEL В БЛОБ =================
   const generateExcelBlob = async (doc) => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Фотоотчет');
@@ -240,45 +243,47 @@ export default function App() {
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   };
 
-  // ================= СИНХРОННЫЙ МГНОВЕННЫЙ ШЕРИНГ БЕЗ ЗАДЕРЖЕК КЛИКА =================
-  const handleShareExcel = () => {
-    if (!excelBlob) return;
+  // ================= ФУНКЦИЯ ШЕРИНГА С АВТОМАТИЧЕСКИМ СМАРТ-ФОЛБЕКОМ =================
+  const handleShareExcel = async () => {
+    if (!excelFile) return;
 
+    // Вспомогательный перехватчик на случай блокировок системы
+    const triggerSmartFallback = (messageText) => {
+      saveAs(excelFile, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+      alert(`💡 Защита смартфона ограничила прямую отправку файлов .xlsx из браузера.\n\n📌 РЕШЕНИЕ: Файл уже АВТОМАТИЧЕСКИ СКАЧАН в вашу систему (папка Файлы/Загрузки). Откройте Telegram или WhatsApp и просто прикрепите его к сообщению.`);
+    };
+
+    // 1. Быстрая проверка поддержки API браузером
+    if (!navigator.share || !navigator.canShare) {
+      triggerSmartFallback();
+      return;
+    }
+
+    // 2. Проверка, разрешает ли ОС делиться конкретно этим xlsx типом
+    if (!navigator.canShare({ files: [excelFile] })) {
+      triggerSmartFallback();
+      return;
+    }
+
+    // 3. Мгновенное выполнение без единого await перед вызовом API
     try {
-      if (!navigator.share) {
-        alert("Браузер заблокировал Share API. Откройте приложение в полноценном Chrome/Safari.");
-        handleDownloadExcel(); 
-        return;
-      }
-
-      // Имя на латинице исключает сбои внутренней файловой безопасности Apple/iOS
-      const systemFileName = `Report_${previewDoc.type}_2026.xlsx`; 
-      const file = new File([excelBlob], systemFileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ 
-          files: [file], 
-          title: `Фотоотчет - ${previewDoc.type}`, 
-          text: `Отчет от ${previewDoc.date}` 
-        }).catch(err => {
-          if (err.name !== 'AbortError') {
-            alert("Ошибка шеринга: " + err.message);
-            handleDownloadExcel();
-          }
-        });
-      } else {
-        alert("Ваша мобильная ОС запретила прямую передачу файлов .xlsx через шторку. Файл будет скачан.");
-        handleDownloadExcel();
-      }
+      await navigator.share({ 
+        files: [excelFile], 
+        title: `Фотоотчет - ${previewDoc.type}`, 
+        text: `Отчет от ${previewDoc.date}` 
+      });
     } catch (error) {
-      alert("Сбой операции: " + error.message);
-      handleDownloadExcel();
+      // Игнорируем, если пользователь сам закрыл шторку крестиком
+      if (error.name !== 'AbortError') {
+        console.warn("Share API отклонён системой:", error.message);
+        triggerSmartFallback();
+      }
     }
   };
 
   const handleDownloadExcel = () => {
-    if (excelBlob) {
-      saveAs(excelBlob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+    if (excelFile) {
+      saveAs(excelFile, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
     }
   };
 
@@ -450,11 +455,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ================= КНОПКИ С ИНТЕГРАЦИЕЙ ТРИГГЕРА БЕЗОПАСНОСТИ ================= */}
+              {/* Панель управления с интеграцией защищенного фолбека */}
               <div className="bg-white border-t border-gray-200 p-4 rounded-t-[24px] shadow-lg mt-auto flex flex-col gap-3">
                 <button 
                   onClick={handleShareExcel} 
-                  disabled={isGenerating || !excelBlob}
+                  disabled={isGenerating || !excelFile}
                   className={`w-full text-white text-sm font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2.5 shadow-md transition-all active:scale-[0.99] ${
                     isGenerating ? 'bg-gray-400 shadow-none cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
                   }`}
@@ -465,7 +470,7 @@ export default function App() {
 
                 <button 
                   onClick={handleDownloadExcel} 
-                  disabled={isGenerating || !excelBlob}
+                  disabled={isGenerating || !excelFile}
                   className={`w-full border text-xs font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors ${
                     isGenerating ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-700'
                   }`}
