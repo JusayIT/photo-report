@@ -2,23 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import SmartCamera from './SmartCamera';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import pdfMake from 'pdfmake/build/pdfmake';
+import pdfFonts from 'pdfmake/build/vfs_fonts';
 import { 
   Info, PlusCircle, FileText, ArrowLeft, Camera, Trash2, 
-  Send, Plus, Edit2, Download, CheckCircle, AlertTriangle 
+  Send, Plus, Edit2, Download, CheckCircle 
 } from 'lucide-react';
 
-// ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
-const getImageDimensions = (base64Data) => {
-  return new Promise((resolve) => {
-    if (!base64Data) return resolve({ width: 0, height: 0 });
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => resolve({ width: 0, height: 0 });
-    img.src = base64Data;
-  });
-};
+// Безопасное подключение шрифтов, адаптированное под сборщик Vite
+try {
+  if (pdfFonts && pdfFonts.pdfMake) {
+    pdfMake.vfs = pdfFonts.pdfMake.vfs;
+  } else if (pdfFonts) {
+    pdfMake.vfs = pdfFonts.vfs || pdfFonts;
+  }
+} catch (error) {
+  console.error("Предупреждение: Не удалось автоматически привязать шрифты VFS:", error);
+}
 
 export default function App() {
   const [screen, setScreen] = useState('main');
@@ -136,132 +136,114 @@ export default function App() {
     setScreen('main');
   };
 
-  // ================= ГЕНЕРАЦИЯ EXCEL (УМНЫЕ ПРОПОРЦИИ И ДИНАМИЧЕСКИЙ РАЗМЕР) =================
-  const generateExcelBlob = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Фотоотчет');
-
-    worksheet.columns = [
-      { key: 'no', width: 6 },
-      { key: 'inv', width: 25 },
-      { key: 'photo1', width: 28 }, // Ширина подогнана чуть шире сжатой фотографии (180px)
-      { key: 'photo2', width: 28 }  // Ширина подогнана чуть шире сжатой фотографии (180px)
+  // ================= СТРУКТУРА ДОКУМЕНТА PDF =================
+  const getDocDefinition = () => {
+    const tableBody = [
+      [
+        { text: '№', style: 'tableHeader' },
+        { text: 'Инвентарный номер', style: 'tableHeader' },
+        { text: 'Фото инвентарного номера', style: 'tableHeader' },
+        { text: 'Фото общего вида ОС', style: 'tableHeader' }
+      ]
     ];
 
-    worksheet.mergeCells('A1:D1');
-    const titleCell = worksheet.getCell('A1');
-    titleCell.value = `Фотоотчет - ${previewDoc.type}`;
-    titleCell.font = { name: 'Calibri', size: 14, bold: true };
-    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-    worksheet.mergeCells('A2:D2');
-    const dateCell = worksheet.getCell('A2');
-    dateCell.value = `Дата: ${previewDoc.date} | Количество ОС: ${previewDoc.positions?.length || 0}`;
-    dateCell.font = { name: 'Calibri', size: 11 };
-    dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-    worksheet.addRow([]); 
-
-    const headerRow = worksheet.addRow(['№', 'Инвентарный номер', 'Фото инвентарного номера', 'Фото общего вида ОС']);
-    headerRow.height = 25;
-    headerRow.eachCell((cell) => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
-      cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    previewDoc.positions.forEach((p, index) => {
+      const row = [
+        { text: index + 1, alignment: 'center', margin: [0, 8, 0, 0] },
+        { text: p.invNumber || '—', alignment: 'center', bold: true, margin: [0, 8, 0, 0] },
+        p.photoInv 
+          ? { image: p.photoInv, fit: [160, 110], alignment: 'center' } 
+          : { text: 'нет фото', alignment: 'center', color: '#b3b3b3', margin: [0, 8, 0, 0] },
+        p.photoObj 
+          ? { image: p.photoObj, fit: [160, 110], alignment: 'center' } 
+          : { text: 'нет фото', alignment: 'center', color: '#b3b3b3', margin: [0, 8, 0, 0] }
+      ];
+      tableBody.push(row);
     });
 
-    // Последовательный асинхронный обход позиций для замера фотографий
-    for (const [index, p] of previewDoc.positions.entries()) {
-      const row = worksheet.addRow([index + 1, p.invNumber || '—', '', '']);
-      row.eachCell((cell) => {
-        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-        cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-      });
-
-      let maxRowHeightPx = 130;  // Базовая аккуратная высота, если изображений нет
-      const imagesToInsert = [];
-      const maxWidthPx = 180;    // Лимит ширины под вертикальный формат 3:4
-      const maxHeightPx = 240;   // Лимит высоты под вертикальный формат 3:4
-
-      // Обработка фото инвентарного номера
-      if (p.photoInv) {
-        const dims = await getImageDimensions(p.photoInv);
-        if (dims.width > 0 && dims.height > 0) {
-          const scale = Math.min(maxWidthPx / dims.width, maxHeightPx / dims.height);
-          const w = dims.width * scale;
-          const h = dims.height * scale;
-          imagesToInsert.push({ base64: p.photoInv, col: 2, w, h });
-          if (h > maxRowHeightPx) maxRowHeightPx = h;
+    return {
+      pageSize: 'A4',
+      pageOrientation: 'portrait',
+      pageMargins: [30, 40, 30, 40],
+      content: [
+        { text: `Фотоотчет - ${previewDoc.type}`, style: 'docTitle', alignment: 'center' },
+        { text: `Дата: ${previewDoc.date} | Количество объектов ОС: ${previewDoc.positions?.length || 0}`, style: 'docSub', alignment: 'center', margin: [0, 0, 0, 20] },
+        {
+          table: {
+            headerRows: 1,
+            widths: [25, 100, '*', '*'],
+            body: tableBody
+          },
+          layout: {
+            hLineWidth: () => 0.5,
+            vLineWidth: () => 0.5,
+            hLineColor: () => '#cccccc',
+            vLineColor: () => '#cccccc',
+            paddingTop: () => 6,
+            paddingBottom: () => 6,
+          }
         }
-      }
-
-      // Обработка фото общего вида ОС
-      if (p.photoObj) {
-        const dims = await getImageDimensions(p.photoObj);
-        if (dims.width > 0 && dims.height > 0) {
-          const scale = Math.min(maxWidthPx / dims.width, maxHeightPx / dims.height);
-          const w = dims.width * scale;
-          const h = dims.height * scale;
-          imagesToInsert.push({ base64: p.photoObj, col: 3, w, h });
-          if (h > maxRowHeightPx) maxRowHeightPx = h;
-        }
-      }
-
-      // Переводим пиксели в пункты Excel (1pt ≈ 1.333px) и закладываем симметричный отступ в 16px
-      row.height = (maxRowHeightPx + 16) / 1.333;
-
-      // Вставка отмасштабированных изображений строго по центру
-      imagesToInsert.forEach((imgData) => {
-        try {
-          const base64Image = imgData.base64.split(';base64,').pop();
-          const imageId = workbook.addImage({ base64: base64Image, extension: 'jpeg' });
-          
-          // Центрируем картинку по вертикали внутри вычисленной высоты строки
-          const rowOffset = Math.max(8, Math.round((maxRowHeightPx - imgData.h) / 2) + 8);
-          
-          worksheet.addImage(imageId, {
-            tl: { col: imgData.col, row: row.number - 1, colOff: 12, rowOff: rowOffset },
-            ext: { width: imgData.w, height: imgData.h },
-            editAs: 'oneCell'
-          });
-        } catch (error) {
-          console.error("Ошибка при добавлении изображения в Excel:", error);
-        }
-      });
-    }
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      ],
+      styles: {
+        docTitle: { fontSize: 16, bold: true, margin: [0, 0, 0, 4] },
+        docSub: { fontSize: 10, color: '#666666' },
+        tableHeader: { bold: true, fontSize: 10, color: 'white', fillColor: '#4472C4', alignment: 'center', margin: [0, 4, 0, 4] }
+      },
+      defaultStyle: { fontSize: 10 }
+    };
   };
 
-  const handleShareExcel = async () => {
+  // ================= БРОНЕБОЙНОЕ СКАЧИВАНИЕ И ШЕРИНГ =================
+  const handleDownloadPdf = () => {
     try {
-      const blob = await generateExcelBlob();
-      const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
-      const file = new File([blob], fileName, { type: blob.type });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: `Фотоотчет - ${previewDoc.type}`,
-          text: `Отчет от ${previewDoc.date}`
+      const docDefinition = getDocDefinition();
+      const fileName = `Фотоотчет_${previewDoc.type}_2026.pdf`;
+      const pdfDoc = pdfMake.createPdf(docDefinition);
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        // На мобильных вызываем Native Share. Пользователь нажмет "Сохранить в файлы/Загрузки"
+        pdfDoc.getBlob(async (blob) => {
+          const file = new File([blob], fileName, { type: 'application/pdf' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: fileName,
+              text: 'Сохранить отчет на устройство'
+            });
+          } else {
+            pdfDoc.download(fileName);
+          }
         });
       } else {
-        saveAs(blob, fileName);
+        // На компьютерах обычное скачивание работает отлично
+        pdfDoc.download(fileName);
       }
     } catch (error) {
-      console.error("Ошибка при отправке:", error);
-      const blob = await generateExcelBlob();
-      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+      console.error("Ошибка при скачивании PDF:", error);
     }
   };
 
-  const handleDownloadExcel = async () => {
+  const handleSharePdf = () => {
     try {
-      const blob = await generateExcelBlob();
-      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+      const docDefinition = getDocDefinition();
+      const fileName = `Фотоотчет_${previewDoc.type}_2026.pdf`;
+      const pdfDoc = pdfMake.createPdf(docDefinition);
+
+      pdfDoc.getBlob(async (blob) => {
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: `Фотоотчет - ${previewDoc.type}`,
+            text: `Отчет от ${previewDoc.date}`
+          });
+        } else {
+          pdfDoc.download(fileName);
+        }
+      });
     } catch (error) {
-      console.error("Ошибка при скачивании файла:", error);
+      console.error("Ошибка при отправке PDF:", error);
     }
   };
 
@@ -329,7 +311,8 @@ export default function App() {
               </div>
               <div className="flex gap-2">
                 <button onClick={saveDocument} className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-3 rounded-lg text-xs transition-all">Сохранить</button>
-                <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
+                <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} 
+                        className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
               </div>
             </header>
 
@@ -379,13 +362,13 @@ export default function App() {
           <>
             <header className="flex items-center px-4 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
               <button onClick={() => setScreen('main')} className="text-gray-500 p-1.5 rounded-lg mr-2"><ArrowLeft className="w-5 h-5" /></button>
-              <h1 className="text-base font-bold text-gray-800">Предпросмотр Excel</h1>
+              <h1 className="text-base font-bold text-gray-800">Предпросмотр PDF</h1>
             </header>
 
             <main className="flex flex-col flex-grow bg-gray-50 overflow-y-auto max-h-[740px]">
               <div className="p-4 bg-white border-b border-gray-200">
                 <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Файл генерации:</p>
-                <p className="text-xs font-mono font-bold text-emerald-600 truncate mt-0.5">Фотоотчет_{previewDoc.type}_2026.xlsx</p>
+                <p className="text-xs font-mono font-bold text-emerald-600 truncate mt-0.5">Фотоотчет_{previewDoc.type}_2026.pdf</p>
               </div>
 
               <div className="p-3 flex-grow overflow-x-auto">
@@ -403,25 +386,26 @@ export default function App() {
                       <div className="col-span-1 text-gray-400 font-bold">{i + 1}</div>
                       <div className="col-span-3 font-bold text-gray-700">{p.invNumber || '—'}</div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="pdf-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="pdf-img" /> : <span className="text-gray-300">нет фото</span>}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
+              {/* НИЖНЯЯ ПАНЕЛЬ С ИСПРАВЛЕННЫМ ТЕКСТОМ И ОБНОВЛЕННЫМИ ФУНКЦИЯМИ */}
               <div className="bg-white border-t border-gray-200 p-4 rounded-t-2xl shadow-lg mt-auto">
-                <p className="text-xs font-bold text-gray-500 mb-3 text-center uppercase tracking-wide">Отправить готовый отчет</p>
+                <p className="text-xs font-bold text-gray-500 mb-3 text-center uppercase tracking-wide">Отправить отчет</p>
                 <div className="grid grid-cols-3 gap-2.5 mb-3">
-                  <button onClick={handleShareExcel} className="p-2.5 bg-emerald-50 text-emerald-700 active:bg-emerald-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-emerald-200/50">WhatsApp</button>
-                  <button onClick={handleShareExcel} className="p-2.5 bg-sky-50 text-sky-700 active:bg-sky-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-sky-200/50">Telegram</button>
-                  <button onClick={handleShareExcel} className="p-2.5 bg-blue-50 text-blue-700 active:bg-blue-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-blue-200/50">Почта</button>
+                  <button onClick={handleSharePdf} className="p-2.5 bg-emerald-50 text-emerald-700 active:bg-emerald-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-emerald-200/50">WhatsApp</button>
+                  <button onClick={handleSharePdf} className="p-2.5 bg-sky-50 text-sky-700 active:bg-sky-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-sky-200/50">Telegram</button>
+                  <button onClick={handleSharePdf} className="p-2.5 bg-blue-50 text-blue-700 active:bg-blue-100 rounded-xl text-xs font-bold text-center transition-colors shadow-sm border border-blue-200/50">Почта</button>
                 </div>
-                <button onClick={handleDownloadExcel} className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all">
-                  <Download className="w-4 h-4" /><span>Скачать Excel файл (.xlsx)</span>
+                <button onClick={handleDownloadPdf} className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md transition-all">
+                  <Download className="w-4 h-4" /><span>Скачать PDF файл (.pdf)</span>
                 </button>
               </div>
             </main>
@@ -443,13 +427,17 @@ export default function App() {
                   <p className="mb-4 font-bold text-gray-900">
                     В заявки 1С на реализацию, благотворительность, списание обязательно должны вкладывать таблицу с указанием:
                   </p>
+                  
                   <ol className="list-decimal pl-5 space-y-2 mb-5 font-normal text-gray-700">
                     <li>Номер по порядку</li>
                     <li>Инвентарный номер выбывающего ОС</li>
                     <li>Фото инвентарного номера — инвентарник четкий, читаемый (не поворачивать)</li>
                     <li>Фото общего вида ОС — без загромождения и без растягивания/сжатия фотографии</li>
                   </ol>
-                  <p className="italic text-gray-500">Фотоотчет вкладывается в заявку в единственном экземпляре.</p>
+                  
+                  <p className="italic text-gray-500">
+                    Фотоотчет вкладыжается в заявку в единственном экземпляре.
+                  </p>
                 </div>
               </div>
 

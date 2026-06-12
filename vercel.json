@@ -1,0 +1,10 @@
+"rewrites": [
+  {
+    "source": "/Фототчет UPD2.pdf",
+    "destination": "/Фототчет UPD2.pdf"
+  },
+  {
+    "source": "/(.*)",
+    "destination": "/index.html"
+  }
+]
