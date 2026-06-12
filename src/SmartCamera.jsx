@@ -6,7 +6,6 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
   const [stream, setStream] = useState(null);
   const [error, setError] = useState(null);
   const [qualityWarning, setQualityWarning] = useState(null);
-
   const isOverlay = field === 'photoInv';
 
   useEffect(() => {
@@ -49,7 +48,6 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
     
     let whitePixels = 0;
     const totalPixels = width * height;
-    
     // Переводим в массив градаций серого для анализа четкости
     const grayData = new Int32Array(totalPixels);
     for (let i = 0; i < data.length; i += 4) {
@@ -100,7 +98,6 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
     }
     
     const blurScore = varianceSum / count;
-
     // Порог размытия: если ниже 8.0 — снимок явно смазан
     if (blurScore < 8.0) {
       return "Фото слишком размытое или не в фокусе. Пожалуйста, зафиксируйте телефон и переснимите.";
@@ -116,18 +113,39 @@ export default function SmartCamera({ id, field, onCapture, onClose }) {
     if (video && canvas) {
       const ctx = canvas.getContext('2d');
       
-      // Захватываем полный кадр без обрезки сторон
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      const vWidth = video.videoWidth;
+      const vHeight = video.videoHeight;
+      
+      // Целевая пропорция модуля камеры (3:4 вертикальная)
+      const targetAspect = 3 / 4;
+      let sWidth = vWidth;
+      let sHeight = vHeight;
+      let sx = 0;
+      let sy = 0;
 
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      // Вычисляем координаты центрированного кропа (умный object-cover)
+      if (vWidth / vHeight < targetAspect) {
+        // Если поток уже, чем 3:4
+        sHeight = vWidth / targetAspect;
+        sy = (vHeight - sHeight) / 2;
+      } else {
+        // Если поток шире, чем 3:4 (стандартная ситуация для большинства смартфонов)
+        sWidth = vHeight * targetAspect;
+        sx = (vWidth - sWidth) / 2;
+      }
+
+      // Устанавливаем размеры холста строго под пропорции 3:4
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+
+      // Вырезаем центральную часть кадра и рисуем на холсте
+      ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
 
       // Валидация качества
       const errorWarning = checkImageQuality(ctx, canvas.width, canvas.height);
-      
       if (errorWarning) {
         setQualityWarning(errorWarning);
-        return; 
+        return;
       }
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);

@@ -9,17 +9,6 @@ import {
   Send, Plus, Edit2, Download, CheckCircle, AlertTriangle 
 } from 'lucide-react';
 
-// ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
-const getImageDimensions = (base64Data) => {
-  return new Promise((resolve) => {
-    if (!base64Data) return resolve({ width: 0, height: 0 });
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => resolve({ width: 0, height: 0 });
-    img.src = base64Data;
-  });
-};
-
 export default function App() {
   const [screen, setScreen] = useState('main');
   const reports = useLiveQuery(() => db.reports.toArray()) || [];
@@ -103,6 +92,7 @@ export default function App() {
       count: positions.length,
       positions: positions
     };
+
     if (currentId) {
       await db.reports.update(currentId, reportData);
     } else {
@@ -136,7 +126,7 @@ export default function App() {
     setScreen('main');
   };
 
-  // ================= ГЕНЕРАЦИЯ EXCEL (УМНЫЕ ПРОПОРЦИИ И ДИНАМИЧЕСКИЙ РАЗМЕР) =================
+  // ================= ГЕНЕРАЦИЯ EXCEL =================
   const generateExcelBlob = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Фотоотчет');
@@ -144,8 +134,8 @@ export default function App() {
     worksheet.columns = [
       { key: 'no', width: 6 },
       { key: 'inv', width: 25 },
-      { key: 'photo1', width: 28 }, // Ширина подогнана чуть шире сжатой фотографии (180px)
-      { key: 'photo2', width: 28 }  // Ширина подогнана чуть шире сжатой фотографии (180px)
+      { key: 'photo1', width: 52 }, 
+      { key: 'photo2', width: 52 }  
     ];
 
     worksheet.mergeCells('A1:D1');
@@ -171,65 +161,34 @@ export default function App() {
       cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
     });
 
-    // Последовательный асинхронный обход позиций для замера фотографий
-    for (const [index, p] of previewDoc.positions.entries()) {
+    previewDoc.positions.forEach((p, index) => {
       const row = worksheet.addRow([index + 1, p.invNumber || '—', '', '']);
+      row.height = 400; 
+
       row.eachCell((cell) => {
         cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
         cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
       });
 
-      let maxRowHeightPx = 130;  // Базовая аккуратная высота, если изображений нет
-      const imagesToInsert = [];
-      const maxWidthPx = 180;    // Лимит ширины под вертикальный формат 3:4
-      const maxHeightPx = 240;   // Лимит высоты под вертикальный формат 3:4
-
-      // Обработка фото инвентарного номера
-      if (p.photoInv) {
-        const dims = await getImageDimensions(p.photoInv);
-        if (dims.width > 0 && dims.height > 0) {
-          const scale = Math.min(maxWidthPx / dims.width, maxHeightPx / dims.height);
-          const w = dims.width * scale;
-          const h = dims.height * scale;
-          imagesToInsert.push({ base64: p.photoInv, col: 2, w, h });
-          if (h > maxRowHeightPx) maxRowHeightPx = h;
-        }
-      }
-
-      // Обработка фото общего вида ОС
-      if (p.photoObj) {
-        const dims = await getImageDimensions(p.photoObj);
-        if (dims.width > 0 && dims.height > 0) {
-          const scale = Math.min(maxWidthPx / dims.width, maxHeightPx / dims.height);
-          const w = dims.width * scale;
-          const h = dims.height * scale;
-          imagesToInsert.push({ base64: p.photoObj, col: 3, w, h });
-          if (h > maxRowHeightPx) maxRowHeightPx = h;
-        }
-      }
-
-      // Переводим пиксели в пункты Excel (1pt ≈ 1.333px) и закладываем симметричный отступ в 16px
-      row.height = (maxRowHeightPx + 16) / 1.333;
-
-      // Вставка отмасштабированных изображений строго по центру
-      imagesToInsert.forEach((imgData) => {
+      const addImageToCell = (base64Data, colNumber) => {
+        if (!base64Data) return;
         try {
-          const base64Image = imgData.base64.split(';base64,').pop();
+          const base64Image = base64Data.split(';base64,').pop();
           const imageId = workbook.addImage({ base64: base64Image, extension: 'jpeg' });
           
-          // Центрируем картинку по вертикали внутри вычисленной высоты строки
-          const rowOffset = Math.max(8, Math.round((maxRowHeightPx - imgData.h) / 2) + 8);
-          
           worksheet.addImage(imageId, {
-            tl: { col: imgData.col, row: row.number - 1, colOff: 12, rowOff: rowOffset },
-            ext: { width: imgData.w, height: imgData.h },
-            editAs: 'oneCell'
+            tl: { col: colNumber, row: row.number - 1, colOff: 15, rowOff: 15 },
+            ext: { width: 220, height: 395 },           
+            editAs: 'oneCell'                           
           });
         } catch (error) {
           console.error("Ошибка при добавлении изображения в Excel:", error);
         }
-      });
-    }
+      };
+
+      addImageToCell(p.photoInv, 2); 
+      addImageToCell(p.photoObj, 3); 
+    });
 
     const buffer = await workbook.xlsx.writeBuffer();
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -240,6 +199,7 @@ export default function App() {
       const blob = await generateExcelBlob();
       const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
       const file = new File([blob], fileName, { type: blob.type });
+
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
@@ -355,6 +315,7 @@ export default function App() {
                       <span className="text-xs font-bold text-gray-400 w-3">{index + 1}</span>
                       <input type="text" placeholder="3-1234" value={pos.invNumber} onChange={(e) => handleInvChange(pos.id, e.target.value)} className="w-[100px] bg-white border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" />
                       
+                      {/* Окончательный фикс растянутых фото */}
                       <div className="w-[85px] h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border">
                         {!pos.photoInv ? (
                           <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">В рамку</span></button>
@@ -366,6 +327,7 @@ export default function App() {
                           <button onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium"><Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" /><span className="scale-90">Фото ОС</span></button>
                         ) : <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="max-w-full max-h-full object-contain cursor-pointer" alt="ос" />}
                       </div>
+
                     </div>
                   </div>
                 ))}
@@ -443,13 +405,17 @@ export default function App() {
                   <p className="mb-4 font-bold text-gray-900">
                     В заявки 1С на реализацию, благотворительность, списание обязательно должны вкладывать таблицу с указанием:
                   </p>
+                  
                   <ol className="list-decimal pl-5 space-y-2 mb-5 font-normal text-gray-700">
                     <li>Номер по порядку</li>
                     <li>Инвентарный номер выбывающего ОС</li>
                     <li>Фото инвентарного номера — инвентарник четкий, читаемый (не поворачивать)</li>
                     <li>Фото общего вида ОС — без загромождения и без растягивания/сжатия фотографии</li>
                   </ol>
-                  <p className="italic text-gray-500">Фотоотчет вкладывается в заявку в единственном экземпляре.</p>
+                  
+                  <p className="italic text-gray-500">
+                    Фотоотчет вкладыжается в заявку в единственном экземпляре.
+                  </p>
                 </div>
               </div>
 
@@ -476,7 +442,7 @@ export default function App() {
                           <td className="border-r border-gray-200 p-1">
                             <div className="h-14 bg-emerald-50 rounded-lg border border-emerald-200 flex flex-col items-center justify-center text-[10px] text-emerald-700 font-semibold p-1 text-center leading-tight">
                               <span>[ Штрих-код ]</span>
-                              <span className="text-[9px] text-emerald-600 font-normal mt-0.5">Четкий, horizontal</span>
+                              <span className="text-[9px] text-emerald-600 font-normal mt-0.5">Четкий, горизонтальный</span>
                             </div>
                           </td>
                           <td className="p-1">
