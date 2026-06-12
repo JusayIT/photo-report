@@ -10,6 +10,7 @@ import {
   Send, Plus, Edit2, Download 
 } from 'lucide-react';
 
+// ================= ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЗАМЕРА ИЗОБРАЖЕНИЙ =================
 const getImageDimensions = (base64Data) => { 
   return new Promise((resolve) => {
     if (!base64Data) return resolve({ width: 0, height: 0 });
@@ -30,6 +31,7 @@ export default function App() {
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
 
+  // ================= ПЕРЕХВАТ ВХОДЯЩИХ ФАЙЛОВ ИЗ ГАЛЕРЕИ (SHARE TARGET) =================
   useEffect(() => {
     async function checkSharedFiles() {
       if (!('caches' in window)) return;
@@ -126,6 +128,7 @@ export default function App() {
     setScreen('main');
   };
 
+  // ================= ГЕНЕРАЦИЯ EXCEL С АВТОПРОПОРЦИЯМИ КАРТИНОК =================
   const generateExcelBlob = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Фотоотчет');
@@ -208,20 +211,37 @@ export default function App() {
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   };
 
+  // ================= ДОПОЛНЕННАЯ ФУНКЦИЯ ШЕРИНГА С ДИАГНОСТИКОЙ И ЛАТИНСКИМ ИМЕНЕМ =================
   const handleShareExcel = async () => {
     try {
+      if (!navigator.share) {
+        alert("Браузер заблокировал Share API. Причина: приложение запущено не через HTTPS или открыто внутри встроенного браузера мессенджера (WebView).");
+        await handleDownloadExcel(); 
+        return;
+      }
+
       const blob = await generateExcelBlob();
-      const fileName = `Фотоотчет_${previewDoc.type}_2026.xlsx`;
-      const file = new File([blob], fileName, { type: blob.type });
+      
+      // Системное имя файла делаем строго латиницей, чтобы iOS/Safari не блокировал его отправку
+      const systemFileName = `Report_${previewDoc.type}_2026.xlsx`; 
+      const file = new File([blob], systemFileName, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: `Фотоотчет - ${previewDoc.type}`, text: `Отчет от ${previewDoc.date}` });
+        await navigator.share({ 
+          files: [file], 
+          title: `Фотоотчет - ${previewDoc.type}`, 
+          text: `Отчет от ${previewDoc.date}` 
+        });
       } else {
-        saveAs(blob, fileName);
+        alert("Ваша мобильная ОС запретила прямую передачу файлов формата .xlsx через шторку шеринга. Файл будет просто скачан.");
+        saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
       }
     } catch (error) {
-      const blob = await generateExcelBlob();
-      saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+      if (error.name !== 'AbortError') {
+        alert("Ошибка при отправке: " + error.message);
+        const blob = await generateExcelBlob();
+        saveAs(blob, `Фотоотчет_${previewDoc.type}_2026.xlsx`);
+      }
     }
   };
 
@@ -403,7 +423,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ================= НОВАЯ СОВРЕМЕННАЯ ПАНЕЛЬ ОТПРАВКИ ================= */}
+              {/* ================= ОБНОВЛЕННАЯ СОВРЕМЕННАЯ ПАНЕЛЬ ОТПРАВКИ ================= */}
               <div className="bg-white border-t border-gray-200 p-4 rounded-t-[24px] shadow-lg mt-auto flex flex-col gap-3">
                 <button 
                   onClick={handleShareExcel} 
