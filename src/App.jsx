@@ -5,10 +5,9 @@ import SmartCamera from './SmartCamera';
 import ReportMemo from './ReportMemo'; // Подключаем внешний компонент памятки
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import { Html5Qrcode } from 'html5-qrcode'; // Переключились на чистый движок сканера
 import { 
   Info, PlusCircle, FileText, ArrowLeft, Camera, Trash2, 
-  Send, Plus, Edit2, Download, Scan 
+  Send, Plus, Edit2, Download 
 } from 'lucide-react';
 
 const getImageDimensions = (base64Data) => { 
@@ -21,72 +20,6 @@ const getImageDimensions = (base64Data) => {
   });
 };
 
-// ================= ОБНОВЛЕННЫЙ КОМПОНЕНТ АВТО-СКАНЕРА =================
-function BarcodeScannerModal({ onScanSuccess, onClose }) {
-  useEffect(() => {
-    // Инициализируем чистый сканер без встроенного дизайна библиотеки
-    const html5QrCode = new Html5Qrcode("barcode-reader-inside");
-    let isRunning = false;
-
-    // Автоматически запускаем камеру при монтировании компонента
-    html5QrCode.start(
-      { facingMode: "environment" }, // Принудительно используем заднюю камеру
-      { 
-        fps: 15, 
-        qrbox: { width: 260, height: 140 } // Область прицела для штрихкода
-      },
-      (text) => {
-        // Успешный скан: сначала чисто гасим камеру, затем передаем результат
-        isRunning = false;
-        html5QrCode.stop()
-          .then(() => onScanSuccess(text))
-          .catch((err) => {
-            console.error("Ошибка остановки камеры:", err);
-            onScanSuccess(text);
-          });
-      },
-      (err) => {
-        // Игнорируем промежуточные ошибки поиска кода в кадрах
-      }
-    )
-    .then(() => {
-      isRunning = true;
-    })
-    .catch((err) => {
-      console.error("Не удалось запустить камеру автоматически:", err);
-    });
-
-    // Очистка при закрытии модалки кнопкой "Отмена"
-    return () => {
-      if (isRunning) {
-        html5QrCode.stop().catch((err) => console.error("Ошибка при закрытии сканера:", err));
-      }
-    };
-  }, [onScanSuccess]);
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-white p-5 rounded-2xl w-full max-w-[400px] text-center shadow-xl">
-        <h3 className="text-sm font-bold text-gray-900 mb-3">Сканирование штрихкода</h3>
-        
-        {/* Сюда библиотека вставит только чистое видео, без кнопок и ссылок */}
-        <div 
-          id="barcode-reader-inside" 
-          className="w-full overflow-hidden rounded-xl border border-gray-200 bg-black aspect-video"
-        ></div>
-        
-        <button 
-          onClick={onClose} 
-          className="mt-4 w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2.5 px-4 rounded-xl text-xs transition-colors"
-        >
-          Отмена
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ================= ОСНОВНОЙ КОМПОНЕНТ ПРИЛОЖЕНИЯ =================
 export default function App() {
   const [screen, setScreen] = useState('main');
   const reports = useLiveQuery(() => db.reports.toArray()) || [];
@@ -94,13 +27,8 @@ export default function App() {
   const [docType, setDocType] = useState('Списание');
   const [positions, setPositions] = useState([{ id: 1, invNumber: '', photoInv: null, photoObj: null }]);
   const [previewDoc, setPreviewDoc] = useState(null);
-  
-  // Состояние для работы стандартной камеры (фотографии)
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
-  
-  // Состояние для отслеживания строки, в которой сканируют ШТРИХКОД
-  const [barcodeTargetId, setBarcodeTargetId] = useState(null);
 
   useEffect(() => {
     async function checkSharedFiles() {
@@ -111,7 +39,6 @@ export default function App() {
         if (response) {
           const blob = await response.blob();
           const file = new File([blob], "shared-photo.jpg", { type: blob.type });
-       
           const reader = new FileReader();
           reader.onloadend = () => {
             const dataUrl = reader.result;
@@ -144,12 +71,6 @@ export default function App() {
 
   const handleInvChange = (id, value) => {
     setPositions(positions.map(p => p.id === id ? { ...p, invNumber: value } : p));
-  };
-
-  // Функция, которая вызывается при успешном сканировании штрихкода
-  const handleBarcodeSuccess = (scannedText) => {
-    setPositions(prev => prev.map(p => p.id === barcodeTargetId ? { ...p, invNumber: scannedText } : p));
-    setBarcodeTargetId(null); // Закрываем сканер штрихкодов
   };
 
   const openCamera = (id, field) => {
@@ -238,10 +159,12 @@ export default function App() {
         cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
         cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
       });
+
       let maxRowHeightPx = 360;
       const imagesToInsert = [];
       const maxWidthPx = 180;
       const maxHeightPx = 360;
+
       if (p.photoInv) {
         const dims = await getImageDimensions(p.photoInv);
         if (dims.width > 0 && dims.height > 0) {
@@ -314,14 +237,6 @@ export default function App() {
           <SmartCamera id={cameraTarget.id} field={cameraTarget.field} onCapture={handleCapturePhoto} onClose={() => setCameraActive(false)} />
         )}
 
-        {/* Модалка сканера штрихкодов */}
-        {barcodeTargetId && (
-          <BarcodeScannerModal 
-            onScanSuccess={handleBarcodeSuccess} 
-            onClose={() => setBarcodeTargetId(null)} 
-          />
-        )}
-
         {screen === 'main' && (
           <>
             <header className="flex justify-between items-center px-5 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
@@ -374,7 +289,6 @@ export default function App() {
                 <button onClick={() => openPreview({ type: docType, positions, date: 'Черновик' })} className="border border-gray-300 text-gray-600 font-medium py-1.5 px-2.5 rounded-lg text-xs flex items-center gap-1"><Send className="w-3 h-3" /></button>
               </div>
             </header>
-       
             <main className="flex flex-col flex-grow px-4 py-4 bg-white overflow-y-auto max-h-[740px]">
               <div className="mb-4">
                 <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">Тип списания:</label>
@@ -386,9 +300,11 @@ export default function App() {
                 </select>
               </div>
 
+              {/* ================= ИСПРАВЛЕННЫЕ СТРОКИ ПОЗИЦИЙ С ИСПОЛЬЗОВАНИЕМ GRID ================= */}
               <div className="flex flex-col gap-3.5 mb-4">
                 {positions.map((pos, index) => (
                   <div key={pos.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
+                    {/* Грид-шапка для колонок */}
                     <div className="bg-gray-50/80 px-3 py-2 grid grid-cols-12 gap-2 items-center border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider relative">
                       <div className="col-span-1 text-center">№</div>
                       <div className="col-span-3 text-center">Инв. номер</div>
@@ -401,24 +317,16 @@ export default function App() {
                       )}
                     </div>
                     
+                    {/* Контент строки по жесткой сетке grid-cols-12 */}
                     <div className="p-3 grid grid-cols-12 gap-2 items-center">
                       <div className="col-span-1 text-center text-xs font-bold text-gray-400">{index + 1}</div>
                       
-                      {/* Поле инпута инвентарника + Кнопка вызова сканера штрихкода */}
-                      <div className="col-span-3 flex items-center gap-1">
+                      <div className="col-span-3">
                         <input 
                           type="text" placeholder="3-1234" value={pos.invNumber} 
                           onChange={(e) => handleInvChange(pos.id, e.target.value)} 
-                          className="w-full bg-white border border-gray-300 rounded-lg px-1 py-1.5 text-[11px] text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none min-w-0" 
+                          className="w-full bg-white border border-gray-300 rounded-lg px-1 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" 
                         />
-                        <button 
-                          type="button"
-                          onClick={() => setBarcodeTargetId(pos.id)}
-                          className="p-1.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors flex-shrink-0"
-                          title="Сканировать штрихкод"
-                        >
-                          <Scan className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                       
                       <div className="col-span-4">
@@ -498,13 +406,14 @@ export default function App() {
                   <button onClick={handleShareExcel} className="p-2.5 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold text-center border border-blue-200/50">Почта</button>
                 </div>
                 <button onClick={handleDownloadExcel} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-md">
-                  <Download className="w-4 h-4" /><span>Скачать Excel file (.xlsx)</span>
+                  <Download className="w-4 h-4" /><span>Скачать Excel файл (.xlsx)</span>
                 </button>
               </div>
             </main>
           </>
         )}
 
+        {/* ================= ВЫЗОВ ВЫНЕСЕННОГО КОМПОНЕНТА ПАМЯТКИ ================= */}
         {screen === 'info' && (
           <ReportMemo onClose={() => setScreen('main')} />
         )}
