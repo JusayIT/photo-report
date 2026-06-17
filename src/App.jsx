@@ -309,7 +309,7 @@ export default function App() {
                       <div className="col-span-1 text-center">№</div>
                       <div className="col-span-3 text-center">Инв. номер</div>
                       <div className="col-span-4 text-center">Фото инв.</div>
-                      <div className="col-span-4 text-center">Общий вид ОС</div>
+                      <div className="col-span-4 text-center">Общий вид</div>
                       {positions.length > 1 && (
                         <button onClick={() => deletePosition(pos.id)} className="text-red-400 hover:text-red-600 transition-colors absolute right-2.5 top-1/2 -translate-y-1/2 p-1">
                           <Trash2 className="w-3.5 h-3.5" />
