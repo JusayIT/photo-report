@@ -300,63 +300,100 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ================= ИСПРАВЛЕННЫЕ СТРОКИ ПОЗИЦИЙ С ИСПОЛЬЗОВАНИЕМ GRID ================= */}
+              {/* ================= СТРОКИ ПОЗИЦИЙ С ИСПОЛЬЗОВАНИЕМ GRID И НАДЕЖНОЙ ПОДСВЕТКОЙ ДУБЛИКАТОВ ================= */}
               <div className="flex flex-col gap-3.5 mb-4">
-                {positions.map((pos, index) => (
-                  <div key={pos.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
-                    {/* Грид-шапка для колонок */}
-                    <div className="bg-gray-50/80 px-3 py-2 grid grid-cols-12 gap-2 items-center border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider relative">
-                      <div className="col-span-1 text-center">№</div>
-                      <div className="col-span-3 text-center">Инв. номер</div>
-                      <div className="col-span-4 text-center">Фото инв.</div>
-                      <div className="col-span-4 text-center">Общий вид</div>
-                      {positions.length > 1 && (
-                        <button onClick={() => deletePosition(pos.id)} className="text-red-400 hover:text-red-600 transition-colors absolute right-2.5 top-1/2 -translate-y-1/2 p-1">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    
-                    {/* Контент строки по жесткой сетке grid-cols-12 */}
-                    <div className="p-3 grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-1 text-center text-xs font-bold text-gray-400">{index + 1}</div>
-                      
-                      <div className="col-span-3">
-                        <input 
-                          type="text" placeholder="3-1234" value={pos.invNumber} 
-                          onChange={(e) => handleInvChange(pos.id, e.target.value)} 
-                          className="w-full bg-white border border-gray-300 rounded-lg px-1 py-1.5 text-xs text-center font-semibold text-gray-700 focus:border-blue-400 focus:outline-none" 
-                        />
-                      </div>
-                      
-                      <div className="col-span-4">
-                        <div className="w-full h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-200">
-                          {!pos.photoInv ? (
-                            <button onClick={() => openCamera(pos.id, 'photoInv')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium hover:bg-blue-50/40 transition-colors">
-                              <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" />
-                              <span className="scale-90">В рамку</span>
-                            </button>
-                          ) : (
-                            <img src={pos.photoInv} onClick={() => openCamera(pos.id, 'photoInv')} className="max-w-full max-h-full object-contain cursor-pointer" alt="инв" />
-                          )}
-                        </div>
-                      </div>
+                {positions.map((pos, index) => {
+                  // Проверяем, является ли текущий ИНВ дубликатом (игнорируя пустые значения и пробелы)
+                  const isDuplicate = pos.invNumber.trim() !== '' && 
+                    positions.filter(p => p.invNumber.trim().toLowerCase() === pos.invNumber.trim().toLowerCase()).length > 1;
 
-                      <div className="col-span-4">
-                        <div className="w-full h-[55px] bg-gray-50 rounded-lg overflow-hidden flex items-center justify-center border border-gray-200">
-                          {!pos.photoObj ? (
-                            <button onClick={() => openCamera(pos.id, 'photoObj')} className="w-full h-full border border-dashed border-blue-300 rounded-lg bg-blue-50/20 flex flex-col items-center justify-center text-[10px] text-blue-600 font-medium hover:bg-blue-50/40 transition-colors">
-                              <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" />
-                              <span className="scale-90">Фото ОС</span>
-                            </button>
-                          ) : (
-                            <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="max-w-full max-h-full object-contain cursor-pointer" alt="ос" />
-                          )}
+                  return (
+                    <div 
+                      key={pos.id} 
+                      className="border rounded-xl bg-white overflow-hidden shadow-sm transition-colors"
+                      style={isDuplicate ? { borderColor: '#f87171', backgroundColor: '#fef2f2' } : {}}
+                    >
+                      {/* Грид-шапка для колонок */}
+                      <div 
+                        className="px-3 py-2 grid grid-cols-12 gap-2 items-center border-b text-[10px] font-bold uppercase tracking-wider relative text-gray-400 bg-gray-50/80 border-gray-100"
+                        style={isDuplicate ? { backgroundColor: '#fee2e2', borderColor: '#fca5a5', color: '#ef4444' } : {}}
+                      >
+                        <div className="col-span-1 text-center">№</div>
+                        <div className="col-span-3 text-center">Инв. номер</div>
+                        <div className="col-span-4 text-center">Фото инв.</div>
+                        <div className="col-span-4 text-center">Общий вид</div>
+                        {positions.length > 1 && (
+                          <button 
+                            onClick={() => deletePosition(pos.id)} 
+                            className="transition-colors absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-red-400 hover:text-red-600"
+                            style={isDuplicate ? { color: '#b91c1c' } : {}}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Контент строки по жесткой сетке grid-cols-12 */}
+                      <div className="p-3 grid grid-cols-12 gap-2 items-center">
+                        <div 
+                          className="col-span-1 text-center text-xs font-bold text-gray-400"
+                          style={isDuplicate ? { color: '#f87171' } : {}}
+                        >
+                          {index + 1}
+                        </div>
+                        
+                        <div className="col-span-3">
+                          <input 
+                            type="text" placeholder="3-1234" value={pos.invNumber} 
+                            onChange={(e) => handleInvChange(pos.id, e.target.value)} 
+                            className="w-full bg-white border border-gray-300 text-gray-700 focus:border-blue-400 rounded-lg px-1 py-1.5 text-xs text-center font-semibold focus:outline-none" 
+                            style={isDuplicate ? { borderColor: '#fca5a5', color: '#991b1b', backgroundColor: '#fff5f5' } : {}}
+                          />
+                        </div>
+                        
+                        <div className="col-span-4">
+                          <div 
+                            className="w-full h-[55px] bg-gray-50 border border-gray-200 rounded-lg overflow-hidden flex items-center justify-center"
+                            style={isDuplicate ? { backgroundColor: '#ffffff', borderColor: '#fca5a5' } : {}}
+                          >
+                            {!pos.photoInv ? (
+                              <button 
+                                onClick={() => openCamera(pos.id, 'photoInv')} 
+                                className="w-full h-full border border-dashed border-blue-300 bg-blue-50/20 text-blue-600 rounded-lg flex flex-col items-center justify-center text-[10px] font-medium transition-colors hover:bg-blue-50/40"
+                                style={isDuplicate ? { borderColor: '#fca5a5', backgroundColor: '#fff5f5', color: '#dc2626' } : {}}
+                              >
+                                <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" style={isDuplicate ? { color: '#f87171' } : {}} />
+                                <span className="scale-90">В рамку</span>
+                              </button>
+                            ) : (
+                              <img src={pos.photoInv} onClick={() => openCamera(pos.id, 'photoInv')} className="max-w-full max-h-full object-contain cursor-pointer" alt="инв" />
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="col-span-4">
+                          <div 
+                            className="w-full h-[55px] bg-gray-50 border border-gray-200 rounded-lg overflow-hidden flex items-center justify-center"
+                            style={isDuplicate ? { backgroundColor: '#ffffff', borderColor: '#fca5a5' } : {}}
+                          >
+                            {!pos.photoObj ? (
+                              <button 
+                                onClick={() => openCamera(pos.id, 'photoObj')} 
+                                className="w-full h-full border border-dashed border-blue-300 bg-blue-50/20 text-blue-600 rounded-lg flex flex-col items-center justify-center text-[10px] font-medium transition-colors hover:bg-blue-50/40"
+                                style={isDuplicate ? { borderColor: '#fca5a5', backgroundColor: '#fff5f5', color: '#dc2626' } : {}}
+                              >
+                                <Camera className="w-3.5 h-3.5 mb-0.5 text-blue-400" style={isDuplicate ? { color: '#f87171' } : {}} />
+                                <span className="scale-90">Фото ОС</span>
+                              </button>
+                            ) : (
+                              <img src={pos.photoObj} onClick={() => openCamera(pos.id, 'photoObj')} className="max-w-full max-h-full object-contain cursor-pointer" alt="ос" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <button onClick={addPosition} className="w-full border border-blue-300 text-blue-600 py-2.5 rounded-xl flex items-center justify-center gap-1 text-xs font-semibold hover:bg-blue-50/30 transition-all"><Plus className="w-4 h-4 stroke-[2.5]" /><span>Добавить позицию</span></button>
             </main>
