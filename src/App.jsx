@@ -139,7 +139,8 @@ export default function App() {
 
     worksheet.mergeCells('A2:D2');
     const dateCell = worksheet.getCell('A2');
-    dateCell.value = `Дата: ${previewDoc.date} | Количество ОС: ${previewDoc.positions?.length || 0}`;
+    // ИЗМЕНЕНИЕ: оставили только количество ОС
+    dateCell.value = `Количество ОС: ${previewDoc.positions?.length || 0}`;
     dateCell.font = { name: 'Calibri', size: 11 };
     dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
@@ -414,7 +415,8 @@ export default function App() {
               <div className="p-3 flex-grow overflow-x-auto">
                 <div className="min-w-[400px] bg-white border border-gray-300 shadow-sm rounded-lg overflow-hidden font-mono text-[11px]">
                   <div className="p-2 border-b border-gray-200 font-bold text-gray-800 text-center bg-gray-50">Фотоотчет - {previewDoc.type}</div>
-                  <div className="p-1.5 border-b border-gray-200 text-gray-500 text-[10px] text-center bg-gray-50/50">Дата: {previewDoc.date} | Позиций: {previewDoc.positions?.length || 0}</div>
+                  {/* ИЗМЕНЕНИЕ: убрана дата в предпросмотре, осталось только количество позиций */}
+                  <div className="p-1.5 border-b border-gray-200 text-gray-500 text-[10px] text-center bg-gray-50/50">Количество ОС: {previewDoc.positions?.length || 0}</div>
                   <div className="grid grid-cols-12 bg-[#4472C4] text-white font-bold p-2 text-center border-b border-gray-300">
                     <div className="col-span-1">№</div>
                     <div className="col-span-3 border-l border-white/20">Инв. номер</div>
