@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from './db';
 import SmartCamera from './SmartCamera';
-import ReportMemo from './ReportMemo'; // Подключаем внешний компонент памятки
+import ReportMemo from './ReportMemo';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { 
@@ -29,6 +29,9 @@ export default function App() {
   const [previewDoc, setPreviewDoc] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraTarget, setCameraTarget] = useState({ id: null, field: '' });
+  
+  // Состояние для полноэкранного просмотра фото
+  const [modalImage, setModalImage] = useState(null);
 
   useEffect(() => {
     async function checkSharedFiles() {
@@ -139,7 +142,6 @@ export default function App() {
 
     worksheet.mergeCells('A2:D2');
     const dateCell = worksheet.getCell('A2');
-    // ИЗМЕНЕНИЕ: оставили только количество ОС
     dateCell.value = `Количество ОС: ${previewDoc.positions?.length || 0}`;
     dateCell.font = { name: 'Calibri', size: 11 };
     dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -301,10 +303,8 @@ export default function App() {
                 </select>
               </div>
 
-              {/* ================= СТРОКИ ПОЗИЦИЙ С ИСПОЛЬЗОВАНИЕМ GRID И НАДЕЖНОЙ ПОДСВЕТКОЙ ДУБЛИКАТОВ ================= */}
               <div className="flex flex-col gap-3.5 mb-4">
                 {positions.map((pos, index) => {
-                  // Проверяем, является ли текущий ИНВ дубликатом (игнорируя пустые значения и пробелы)
                   const isDuplicate = pos.invNumber.trim() !== '' && 
                     positions.filter(p => p.invNumber.trim().toLowerCase() === pos.invNumber.trim().toLowerCase()).length > 1;
 
@@ -314,7 +314,6 @@ export default function App() {
                       className="border rounded-xl bg-white overflow-hidden shadow-sm transition-colors"
                       style={isDuplicate ? { borderColor: '#f87171', backgroundColor: '#fef2f2' } : {}}
                     >
-                      {/* Грид-шапка для колонок */}
                       <div 
                         className="px-3 py-2 grid grid-cols-12 gap-2 items-center border-b text-[10px] font-bold uppercase tracking-wider relative text-gray-400 bg-gray-50/80 border-gray-100"
                         style={isDuplicate ? { backgroundColor: '#fee2e2', borderColor: '#fca5a5', color: '#ef4444' } : {}}
@@ -334,7 +333,6 @@ export default function App() {
                         )}
                       </div>
                       
-                      {/* Контент строки по жесткой сетке grid-cols-12 */}
                       <div className="p-3 grid grid-cols-12 gap-2 items-center">
                         <div 
                           className="col-span-1 text-center text-xs font-bold text-gray-400"
@@ -415,11 +413,10 @@ export default function App() {
               <div className="p-3 flex-grow overflow-x-auto">
                 <div className="min-w-[400px] bg-white border border-gray-300 shadow-sm rounded-lg overflow-hidden font-mono text-[11px]">
                   <div className="p-2 border-b border-gray-200 font-bold text-gray-800 text-center bg-gray-50">Фотоотчет - {previewDoc.type}</div>
-                  {/* ИЗМЕНЕНИЕ: убрана дата в предпросмотре, осталось только количество позиций */}
                   <div className="p-1.5 border-b border-gray-200 text-gray-500 text-[10px] text-center bg-gray-50/50">Количество ОС: {previewDoc.positions?.length || 0}</div>
                   <div className="grid grid-cols-12 bg-[#4472C4] text-white font-bold p-2 text-center border-b border-gray-300">
                     <div className="col-span-1">№</div>
-                    <div className="col-span-3 border-l border-white/20">Инв. номер</div>
+                    <div className="col-span-3 border-l border-white/20">Инвентарный номер</div>
                     <div className="col-span-4 border-l border-white/20">Фото инв.</div>
                     <div className="col-span-4 border-l border-white/20">Фото общего вида</div>
                   </div>
@@ -428,10 +425,24 @@ export default function App() {
                       <div className="col-span-1 text-gray-400 font-bold">{i + 1}</div>
                       <div className="col-span-3 font-bold text-gray-700">{p.invNumber || '—'}</div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoInv ? <img src={p.photoInv} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoInv ? (
+                          <img 
+                            src={p.photoInv} 
+                            onClick={() => setModalImage(p.photoInv)}
+                            className="h-12 w-16 object-contain rounded cursor-pointer hover:opacity-80 transition-opacity" 
+                            alt="excel-img" 
+                          />
+                        ) : <span className="text-gray-300">нет фото</span>}
                       </div>
                       <div className="col-span-4 p-0.5 flex justify-center">
-                        {p.photoObj ? <img src={p.photoObj} className="h-12 w-16 object-contain rounded" alt="excel-img" /> : <span className="text-gray-300">нет фото</span>}
+                        {p.photoObj ? (
+                          <img 
+                            src={p.photoObj} 
+                            onClick={() => setModalImage(p.photoObj)}
+                            className="h-12 w-16 object-contain rounded cursor-pointer hover:opacity-80 transition-opacity" 
+                            alt="excel-img" 
+                          />
+                        ) : <span className="text-gray-300">нет фото</span>}
                       </div>
                     </div>
                   ))}
@@ -452,9 +463,22 @@ export default function App() {
           </>
         )}
 
-        {/* ================= ВЫЗОВ ВЫНЕСЕННОГО КОМПОНЕНТА ПАМЯТКИ ================= */}
         {screen === 'info' && (
           <ReportMemo onClose={() => setScreen('main')} />
+        )}
+
+        {/* Окно полноэкранного просмотра фото по клику */}
+        {modalImage && (
+          <div 
+            onClick={() => setModalImage(null)}
+            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer backdrop-blur-sm transition-all"
+          >
+            <img 
+              src={modalImage} 
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" 
+              alt="Увеличенное фото" 
+            />
+          </div>
         )}
 
       </div>
